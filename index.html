@@ -140,6 +140,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sist-btn{background:var(--bg);border:1px solid var(--bd);border-radius:99px;padding:7px 14px;font-size:12px;cursor:pointer;color:var(--mu);font-family:inherit;font-weight:500;transition:all .15s;-webkit-tap-highlight-color:transparent}
 .sist-btn.on{background:var(--or-lt);border-color:var(--or-bd);color:#712B13;font-weight:700}
 
+
+.foto-area{margin-bottom:12px}
+.foto-preview{width:100%;height:160px;object-fit:cover;border-radius:var(--rs);display:block;border:1px solid var(--bd)}
+.foto-placeholder{width:100%;height:160px;background:var(--bg);border:2px dashed var(--bd);border-radius:var(--rs);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;color:var(--mu);gap:6px;font-size:13px}
+.foto-placeholder i{font-size:32px;color:var(--bd)}
+.foto-actions{display:flex;gap:6px;margin-top:6px}
+.foto-btn{flex:1;padding:8px;border:1px solid var(--bd);border-radius:var(--rs);background:var(--card);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;color:var(--mu);font-family:inherit}
+.foto-btn.danger{color:#E24B4A;border-color:#F09595}
+.foto-upload-prog{height:3px;background:var(--bd);border-radius:99px;overflow:hidden;margin-top:6px;display:none}
+.foto-upload-prog.on{display:block}
+.foto-upload-bar{height:3px;background:var(--or);width:0%;border-radius:99px;transition:width .3s}
+
 </style>
 </head>
 <body>
@@ -438,6 +450,117 @@ document.addEventListener('DOMContentLoaded', function(){
   if(em) em.addEventListener('keydown', function(e){ if(e.key==='Enter') document.getElementById('l-senha').focus(); });
 });
 
+
+// ── FOTO DE FACHADA ────────────────────────────────────────
+var _fotoBase64 = null;
+var _fotoNome = null;
+var _fotoRemover = false;
+
+function fotoHtml(urlAtual){
+  var preview = urlAtual
+    ? '<img id="foto-img" src="'+urlAtual+'" class="foto-preview" alt="Fachada">'
+    : '<div class="foto-placeholder" onclick="document.getElementById(\'foto-input\').click()"><i class="ti ti-camera"></i><span>Toque para adicionar foto da fachada</span></div>';
+  return '<div class="foto-area">'
+    +'<label style="font-size:12px;font-weight:600;color:var(--mu);display:block;margin-bottom:6px">Foto da fachada</label>'
+    +preview
+    +'<div class="foto-actions" id="foto-actions" style="'+(urlAtual?'':'display:none')+'">'
+    +'<button type="button" class="foto-btn" onclick="document.getElementById(\'foto-input\').click()"><i class="ti ti-camera" style="font-size:14px"></i> Trocar foto</button>'
+    +'<button type="button" class="foto-btn danger" onclick="removerFoto()"><i class="ti ti-trash" style="font-size:14px"></i> Remover</button>'
+    +'</div>'
+    +'<div class="foto-upload-prog" id="foto-prog"><div class="foto-upload-bar" id="foto-bar"></div></div>'
+    +'<input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none" onchange="selecionarFoto(this)">'
+    +'</div>';
+}
+
+function selecionarFoto(input){
+  var file = input.files[0];
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    // Comprimir imagem antes de salvar
+    var img = new Image();
+    img.onload = function(){
+      var canvas = document.createElement('canvas');
+      var MAX = 1200;
+      var w = img.width, h = img.height;
+      if(w > MAX){ h = Math.round(h * MAX/w); w = MAX; }
+      if(h > MAX){ w = Math.round(w * MAX/h); h = MAX; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      var compressed = canvas.toDataURL('image/jpeg', 0.75);
+      _fotoBase64 = compressed;
+      _fotoNome = 'fachada_' + Date.now() + '.jpg';
+      _fotoRemover = false;
+      // Mostrar preview
+      var area = document.querySelector('.foto-area');
+      if(area){
+        var old = area.querySelector('.foto-placeholder, #foto-img');
+        if(old){
+          var newImg = document.createElement('img');
+          newImg.id = 'foto-img';
+          newImg.src = compressed;
+          newImg.className = 'foto-preview';
+          newImg.alt = 'Fachada';
+          old.replaceWith(newImg);
+        }
+        var acts = document.getElementById('foto-actions');
+        if(acts) acts.style.display = 'flex';
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removerFoto(){
+  _fotoBase64 = null;
+  _fotoNome = null;
+  _fotoRemover = true;
+  var area = document.querySelector('.foto-area');
+  if(area){
+    var old = area.querySelector('#foto-img');
+    if(old){
+      var ph = document.createElement('div');
+      ph.className = 'foto-placeholder';
+      ph.onclick = function(){ document.getElementById('foto-input').click(); };
+      ph.innerHTML = '<i class="ti ti-camera"></i><span>Toque para adicionar foto da fachada</span>';
+      old.replaceWith(ph);
+    }
+    var acts = document.getElementById('foto-actions');
+    if(acts) acts.style.display = 'none';
+  }
+}
+
+async function uploadFoto(cliId){
+  if(!_fotoBase64) return null;
+  // Converter base64 para blob
+  var arr = _fotoBase64.split(',');
+  var bstr = atob(arr[1]);
+  var u8arr = new Uint8Array(bstr.length);
+  for(var i=0;i<bstr.length;i++) u8arr[i] = bstr.charCodeAt(i);
+  var blob = new Blob([u8arr], {type:'image/jpeg'});
+  var path = COORD.id + '/' + cliId + '_' + Date.now() + '.jpg';
+  // Mostrar progresso
+  var prog = document.getElementById('foto-prog');
+  var bar = document.getElementById('foto-bar');
+  if(prog) prog.classList.add('on');
+  if(bar) bar.style.width = '30%';
+  var r = await fetch('https://imfknwmbmqvcmvrnhiwm.supabase.co/storage/v1/object/fachadas/' + path, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPA_KEY,
+      'Authorization': 'Bearer ' + SUPA_KEY,
+      'Content-Type': 'image/jpeg',
+      'x-upsert': 'true'
+    },
+    body: blob
+  });
+  if(bar) bar.style.width = '100%';
+  setTimeout(function(){ if(prog) prog.classList.remove('on'); }, 500);
+  if(!r.ok) throw new Error('Erro no upload da foto');
+  return 'https://imfknwmbmqvcmvrnhiwm.supabase.co/storage/v1/object/public/fachadas/' + path;
+}
+
 // ── SUPABASE
 function supaHeaders(){return{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'return=minimal'};}
 async function supaGet(table,filter){var r=await fetch(SUPA_URL+'/rest/v1/'+table+'?'+filter,{headers:supaHeaders()});if(!r.ok)throw new Error(await r.text());return r.json();}
@@ -452,7 +575,7 @@ function setSyncStatus(st){var dot=document.getElementById('sync-dot'),txt=docum
 
 // ── CARREGAR DADOS
 async function carregarClientes(){
-  try{var rows=await supaGet('clientes','coord_id=eq.'+COORD.id+'&order=nome');var C=rows.map(function(r){return{id:r.id,codigo:r.codigo||'',cnpj:r.cnpj||'',nome:r.nome,tipo:r.tipo,resp:r.resp,tel:r.tel,bairro:r.bairro,fat:r.fat||0,meta:r.meta||10000,canal:r.canal,status:r.status,maquina:r.maquina,obs:r.obs||'',potencial:r.potencial||0,share:r.share||0,concorrentes:r.concorrentes||'',ulv:r.ulv_data||'',ulvDisp:r.ulv_display||'',qtdMecanicos:r.qtd_mecanicos||0,qtdElevadores:r.qtd_elevadores||0,sistemas:r.sistemas_atendidos||[]};}); lsSet('C_'+COORD.id,C);return C;}
+  try{var rows=await supaGet('clientes','coord_id=eq.'+COORD.id+'&order=nome');var C=rows.map(function(r){return{id:r.id,codigo:r.codigo||'',cnpj:r.cnpj||'',nome:r.nome,tipo:r.tipo,resp:r.resp,tel:r.tel,bairro:r.bairro,fat:r.fat||0,meta:r.meta||10000,canal:r.canal,status:r.status,maquina:r.maquina,obs:r.obs||'',potencial:r.potencial||0,share:r.share||0,concorrentes:r.concorrentes||'',ulv:r.ulv_data||'',ulvDisp:r.ulv_display||'',qtdMecanicos:r.qtd_mecanicos||0,qtdElevadores:r.qtd_elevadores||0,sistemas:r.sistemas_atendidos||[],fotoFachada:r.foto_fachada||null};}); lsSet('C_'+COORD.id,C);return C;}
   catch(e){setSyncStatus('err');return lsGet('C_'+COORD.id)||[];}
 }
 async function carregarVisitas(){
@@ -889,6 +1012,7 @@ async function abrirSheet(tipo, preCliId){
       +'<div class="f2"><div class="fg"><label>Potencial total (R$/mês)</label><input type="number" id="fpot" placeholder="0" min="0"></div><div class="fg"><label>Share Castrillon (%)</label><input type="number" id="fshare" placeholder="Ex: 30" min="0" max="100"></div></div>'
       
       
+      +'<div class="fg" style="margin-bottom:4px" id="foto-wrap"></div>'
       +'<div class="f2"><div class="fg"><label>Qtd. de mecânicos</label><input type="number" id="fmecanicos" placeholder="Ex: 5" min="0"></div><div class="fg"><label>Qtd. de elevadores</label><input type="number" id="felevadores" placeholder="Ex: 3" min="0"></div></div>'
       +'<div class="fg" style="margin-top:4px"><label>Sistemas atendidos pela oficina</label>'+buildSistGrid([])+'</div></div>'
       +'<div class="acts"><button class="bs" onclick="fecharSheet()">Cancelar</button><button class="bp" id="btn-sc" onclick="salvarCliente()"><i class="ti ti-check"></i> Salvar</button></div>';
@@ -922,6 +1046,9 @@ async function abrirSheet(tipo, preCliId){
 
   document.getElementById('s-tit').textContent=tit;
   document.getElementById('s-body').innerHTML=body;
+  // Injetar foto se existir o wrapper
+  var fw=document.getElementById('foto-wrap');
+  if(fw){fw.outerHTML=fotoHtml(null);}
 }
 
 async function editarCliente(cid){
@@ -940,12 +1067,17 @@ async function editarCliente(cid){
     +'<div class="fg"><label>Concorrentes</label><input type="text" id="fconc" value="'+esc(c.concorrentes||'')+'"></div>'
     +'<div class="fg"><label>Observações</label><textarea id="fobs">'+esc(c.obs||'')+'</textarea></div>'
     
+    +'<div class="fg" style="margin-bottom:4px" id="foto-wrap"></div>'
     +'<div class="f2"><div class="fg"><label>Qtd. de mecânicos</label><input type="number" id="fmecanicos" value="'+(c.qtdMecanicos||0)+'"></div><div class="fg"><label>Qtd. de elevadores</label><input type="number" id="felevadores" value="'+(c.qtdElevadores||0)+'"></div></div>'
     +'<div class="fg" style="margin-top:4px"><label>Sistemas atendidos pela oficina</label>'+buildSistGrid(c.sistemas||[])+'</div></div>'
     +'<div class="acts"><button class="bs" onclick="fecharSheet()">Cancelar</button><button class="bp" id="btn-atualizar"><i class="ti ti-check"></i> Atualizar</button></div>';
   document.getElementById('btn-atualizar').onclick=function(){atualizarCliente(cid);};
   fecharSheet();setTimeout(function(){
     abrirSW();
+    setTimeout(function(){
+      var fw2=document.getElementById('foto-wrap');
+      if(fw2){fw2.outerHTML=fotoHtml(c.fotoFachada||null);}
+    },50);
   },200);
 }
 
@@ -973,7 +1105,10 @@ function selNps(n){
 }
 
 function abrirSW(){document.getElementById('sw').classList.add('on');}
-function fecharSheet(){document.getElementById('sw').classList.remove('on');}
+function fecharSheet(){
+  document.getElementById('sw').classList.remove('on');
+  _fotoBase64=null;_fotoNome=null;_fotoRemover=false;
+}
 
 // ── SALVAR
 async function salvarVisita(){
@@ -1052,6 +1187,12 @@ async function salvarCliente(){
     updated_at:new Date().toISOString()
   };
   try{
+    // Upload foto se selecionada
+    if(_fotoBase64){
+      var fotoUrl = await uploadFoto(obj.id);
+      if(fotoUrl) obj.foto_fachada = fotoUrl;
+      _fotoBase64=null;_fotoNome=null;
+    }
     await supaUpsert('clientes',obj);
     lsSet('C_'+COORD.id,null);
     setSyncStatus('ok');
@@ -1092,6 +1233,14 @@ async function atualizarCliente(cid){
     updated_at:new Date().toISOString()
   };
   try{
+    // Upload foto nova
+    if(_fotoBase64){
+      var fotoUrl2 = await uploadFoto(cid);
+      if(fotoUrl2) obj.foto_fachada = fotoUrl2;
+      _fotoBase64=null;_fotoNome=null;
+    }
+    // Remover foto
+    if(_fotoRemover){ obj.foto_fachada = null; _fotoRemover=false; }
     await supaUpsert('clientes',obj);
     lsSet('C_'+COORD.id,null);
     setSyncStatus('ok');
