@@ -1021,52 +1021,87 @@ async function salvarVisita(){
 async function salvarCliente(){
   var nome=(document.getElementById('fnome').value||'').trim();
   if(!nome){toast('Informe o nome da oficina');return;}
-  var btn=document.getElementById('btn-sc');if(btn){btn.disabled=true;btn.textContent='Salvando...';}
+  var btn=document.getElementById('btn-sc');
+  if(btn){btn.disabled=true;btn.textContent='Salvando...';}
   setSyncStatus('sync');
-  var obj={id:'c'+Date.now(),coord_id:COORD.id,
+  var obj={
+    id:'c'+Date.now(),
+    coord_id:COORD.id,
     codigo:(document.getElementById('fcodigo')&&document.getElementById('fcodigo').value||'').trim(),
     cnpj:(document.getElementById('fcnpj')&&document.getElementById('fcnpj').value||'').trim(),
-    nome,tipo:document.getElementById('ftipo').value,
-    resp:(document.getElementById('fresp').value||'').trim()||'—',
-    tel:(document.getElementById('ftel').value||'').trim()||'—',
-    bairro:(document.getElementById('fbairro').value||'').trim()||'—',
-    fat:parseFloat(document.getElementById('ffat').value)||0,meta:10000,
-    canal:document.getElementById('fcanal').value,status:document.getElementById('fstatus').value,
-    maquina:document.getElementById('fmaq').value==='true',
-    obs:(document.getElementById('fobs').value||'').trim(),
-    potencial:parseFloat(document.getElementById('fpot').value)||0,
-    share:parseFloat(document.getElementById('fshare').value)||0,
-    concorrentes:(document.getElementById('fconc').value||'').trim(),
-    ulv_data:'',ulv_display:'',criado_em:new Date().toISOString(),updated_at:new Date().toISOString()};
-  try{await supaUpsert('clientes',obj);lsSet('C_'+COORD.id,null);setSyncStatus('ok');toast('Cliente salvo!');}
-  catch(e){setSyncStatus('err');toast('Erro ao sincronizar.');}
-  if(btn){btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar';}
-  fecharSheet();renderCart(filtroAtual);
+    nome:nome,
+    tipo:document.getElementById('ftipo')&&document.getElementById('ftipo').value||'Oficina mecânica',
+    resp:(document.getElementById('fresp')&&document.getElementById('fresp').value||'').trim()||'—',
+    tel:(document.getElementById('ftel')&&document.getElementById('ftel').value||'').trim()||'—',
+    bairro:(document.getElementById('fbairro')&&document.getElementById('fbairro').value||'').trim()||'—',
+    fat:parseFloat(document.getElementById('ffat')&&document.getElementById('ffat').value)||0,
+    meta:10000,
+    canal:document.getElementById('fcanal')&&document.getElementById('fcanal').value||'Balcão',
+    status:document.getElementById('fstatus')&&document.getElementById('fstatus').value||'Ativa',
+    maquina:(document.getElementById('fmaq')&&document.getElementById('fmaq').value)==='true',
+    obs:(document.getElementById('fobs')&&document.getElementById('fobs').value||'').trim(),
+    potencial:parseFloat(document.getElementById('fpot')&&document.getElementById('fpot').value)||0,
+    share:parseFloat(document.getElementById('fshare')&&document.getElementById('fshare').value)||0,
+    qtd_mecanicos:parseInt(document.getElementById('fmecanicos')&&document.getElementById('fmecanicos').value)||0,
+    qtd_elevadores:parseInt(document.getElementById('felevadores')&&document.getElementById('felevadores').value)||0,
+    sistemas_atendidos:getSistemasSelected(document.getElementById('s-body')),
+    ulv_data:'',
+    ulv_display:'',
+    criado_em:new Date().toISOString(),
+    updated_at:new Date().toISOString()
+  };
+  try{
+    await supaUpsert('clientes',obj);
+    lsSet('C_'+COORD.id,null);
+    setSyncStatus('ok');
+    toast('Cliente salvo!');
+    fecharSheet();
+    renderCart(filtroAtual);
+  }catch(e){
+    console.error('salvarCliente error:',e);
+    setSyncStatus('err');
+    toast('Erro: '+e.message.slice(0,60));
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar';}
+  }
 }
 
 async function atualizarCliente(cid){
   setSyncStatus('sync');
-  var obj={id:cid,coord_id:COORD.id,
+  var obj={
+    id:cid,
+    coord_id:COORD.id,
     codigo:(document.getElementById('fcodigo')&&document.getElementById('fcodigo').value||'').trim(),
     cnpj:(document.getElementById('fcnpj')&&document.getElementById('fcnpj').value||'').trim(),
-    nome:(document.getElementById('fnome').value||'').trim(),
-    resp:(document.getElementById('fresp').value||'').trim(),
-    tel:(document.getElementById('ftel').value||'').trim(),
-    bairro:(document.getElementById('fbairro').value||'').trim(),
-    fat:parseFloat(document.getElementById('ffat').value)||0,
-    canal:document.getElementById('fcanal').value,status:document.getElementById('fstatus').value,
-    maquina:document.getElementById('fmaq').value==='true',
-    potencial:parseFloat(document.getElementById('fpot').value)||0,
-    share:parseFloat(document.getElementById('fshare').value)||0,
-    concorrentes:(document.getElementById('fconc').value||'').trim(),
-    obs:(document.getElementById('fobs').value||'').trim(),
-    qtd_mecanicos:parseInt((document.getElementById('fmecanicos')||{}).value)||0,
-    qtd_elevadores:parseInt((document.getElementById('felevadores')||{}).value)||0,
+    nome:(document.getElementById('fnome')&&document.getElementById('fnome').value||'').trim(),
+    resp:(document.getElementById('fresp')&&document.getElementById('fresp').value||'').trim(),
+    tel:(document.getElementById('ftel')&&document.getElementById('ftel').value||'').trim(),
+    bairro:(document.getElementById('fbairro')&&document.getElementById('fbairro').value||'').trim(),
+    fat:parseFloat(document.getElementById('ffat')&&document.getElementById('ffat').value)||0,
+    canal:document.getElementById('fcanal')&&document.getElementById('fcanal').value||'Balcão',
+    status:document.getElementById('fstatus')&&document.getElementById('fstatus').value||'Ativa',
+    maquina:(document.getElementById('fmaq')&&document.getElementById('fmaq').value)==='true',
+    potencial:parseFloat(document.getElementById('fpot')&&document.getElementById('fpot').value)||0,
+    share:parseFloat(document.getElementById('fshare')&&document.getElementById('fshare').value)||0,
+    concorrentes:(document.getElementById('fconc')&&document.getElementById('fconc').value||'').trim(),
+    obs:(document.getElementById('fobs')&&document.getElementById('fobs').value||'').trim(),
+    qtd_mecanicos:parseInt(document.getElementById('fmecanicos')&&document.getElementById('fmecanicos').value)||0,
+    qtd_elevadores:parseInt(document.getElementById('felevadores')&&document.getElementById('felevadores').value)||0,
     sistemas_atendidos:getSistemasSelected(document.getElementById('s-body')),
-    updated_at:new Date().toISOString()};
-  try{await supaUpsert('clientes',obj);lsSet('C_'+COORD.id,null);setSyncStatus('ok');toast('Cliente atualizado!');}
-  catch(e){setSyncStatus('err');toast('Erro ao sincronizar.');}
-  fecharSheet();renderCart(filtroAtual);
+    updated_at:new Date().toISOString()
+  };
+  try{
+    await supaUpsert('clientes',obj);
+    lsSet('C_'+COORD.id,null);
+    setSyncStatus('ok');
+    toast('Cliente atualizado!');
+    fecharSheet();
+    renderCart(filtroAtual);
+  }catch(e){
+    console.error('atualizarCliente error:',e);
+    setSyncStatus('err');
+    toast('Erro: '+e.message.slice(0,60));
+  }
 }
 
 async function salvarRota2(){
