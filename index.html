@@ -476,19 +476,20 @@ var _fotoRemover = false;
 function fotoHtml(urlAtual){
   var preview = urlAtual
     ? '<img id="foto-img" src="'+urlAtual+'" class="foto-preview" alt="Fachada">'
-    : '<div class="foto-placeholder" onclick="document.getElementById(\'foto-input\').click()"><i class="ti ti-camera"></i><span>Toque para adicionar foto da fachada</span></div>';
+    : '<div class="foto-placeholder"><i class="ti ti-photo" style="font-size:28px;color:var(--bd)"></i><span>Adicionar foto da fachada</span></div>';
   return '<div class="foto-area">'
     +'<label style="font-size:12px;font-weight:600;color:var(--mu);display:block;margin-bottom:6px">Foto da fachada</label>'
     +preview
-    +'<div class="foto-actions" id="foto-actions" style="'+(urlAtual?'':'display:none')+'">'
-    +'<button type="button" class="foto-btn" onclick="document.getElementById(\'foto-input\').click()"><i class="ti ti-camera" style="font-size:14px"></i> Trocar foto</button>'
-    +'<button type="button" class="foto-btn danger" onclick="removerFoto()"><i class="ti ti-trash" style="font-size:14px"></i> Remover</button>'
+    +'<div class="foto-actions" style="display:flex;margin-top:6px;gap:6px">'
+    +'<button type="button" class="foto-btn" onclick="document.getElementById(\'foto-camera\').click()"><i class="ti ti-camera" style="font-size:14px"></i> Câmera</button>'
+    +'<button type="button" class="foto-btn" onclick="document.getElementById(\'foto-galeria\').click()"><i class="ti ti-photo" style="font-size:14px"></i> Galeria</button>'
+    +(urlAtual?'<button type="button" class="foto-btn danger" onclick="removerFoto()"><i class="ti ti-trash" style="font-size:14px"></i> Remover</button>':'<button type="button" class="foto-btn danger" id="btn-remover-foto" onclick="removerFoto()" style="display:none"><i class="ti ti-trash" style="font-size:14px"></i> Remover</button>')
     +'</div>'
     +'<div class="foto-upload-prog" id="foto-prog"><div class="foto-upload-bar" id="foto-bar"></div></div>'
-    +'<input type="file" id="foto-input" accept="image/*" style="display:none" onchange="selecionarFoto(this)">'
+    +'<input type="file" id="foto-camera" accept="image/*" capture="environment" style="display:none" onchange="selecionarFoto(this)">'
+    +'<input type="file" id="foto-galeria" accept="image/*" style="display:none" onchange="selecionarFoto(this)">'
     +'</div>';
 }
-
 function selecionarFoto(input){
   var file = input.files[0];
   if(!file) return;
