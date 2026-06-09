@@ -2,8 +2,12 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="version" content="202606090145">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
-<title>Castrillon CRM</title>
+<title>Castrillon CRM v202606090145</title>
 <meta name="theme-color" content="#E8520A">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -615,9 +619,35 @@ async function boot(){
 
 async function aposLogin(){
   var p=lsGet('perfil');
-  if(p&&p.id){COORD=p;renderHdr();renderDash();}
-  else{document.getElementById('ob').classList.add('on');}
+  if(p&&p.id){
+    COORD=p;
+    // Garantir que o coordenador existe no Supabase
+    await garantirCoordenador();
+    renderHdr();renderDash();
+  }else{document.getElementById('ob').classList.add('on');}
 }
+
+async function garantirCoordenador(){
+  if(!COORD) return false;
+  for(var tentativa=0; tentativa<3; tentativa++){
+    try{
+      await supaUpsert('coordenadores',{
+        id:COORD.id,
+        nome:COORD.nome,
+        regiao:COORD.regiao||'',
+        filial:COORD.filial||'',
+        email:COORD.email||'',
+        updated_at:new Date().toISOString()
+      });
+      return true;
+    }catch(e){
+      console.warn('garantirCoordenador tentativa '+(tentativa+1)+':',e.message);
+      if(tentativa < 2) await new Promise(function(r){setTimeout(r,1000);});
+    }
+  }
+  return false;
+}
+
 async function salvarPerfil(){
   var nome=(document.getElementById('ob-nome').value||'').trim();
   var reg=(document.getElementById('ob-regiao').value||'').trim();
