@@ -441,8 +441,21 @@ async function fazerLogin(){
 }
 
 function fazerLogout(){
+  // Limpar sessão e perfil — próximo login começa do zero
   localStorage.removeItem('supa_session');
+  if(_session && _session.user && _session.user.email){
+    localStorage.removeItem('crm_perfil_'+_session.user.email);
+  }
+  localStorage.removeItem('crm_perfil');
   _session = null;
+  COORD = null;
+  _isAdmin = false;
+  _permissoes = [];
+  // Limpar campos do login
+  var em = document.getElementById('l-email');
+  var se = document.getElementById('l-senha');
+  if(em) em.value = '';
+  if(se) se.value = '';
   document.getElementById('login-wrap').classList.add('on');
 }
 
@@ -618,10 +631,12 @@ async function boot(){
 }
 
 async function aposLogin(){
-  var p=lsGet('perfil');
+  var email = _session && _session.user && _session.user.email;
+  var chave = email ? 'perfil_'+email : 'perfil';
+  var p = lsGet(chave);
   if(p&&p.id){
     COORD=p;
-    // Garantir que o coordenador existe no Supabase
+    COORD.email = email;
     await garantirCoordenador();
     renderHdr();renderDash();
   }else{document.getElementById('ob').classList.add('on');}
@@ -653,8 +668,10 @@ async function salvarPerfil(){
   var reg=(document.getElementById('ob-regiao').value||'').trim();
   if(!nome||!reg){toast('Preencha nome e região');return;}
   var id=COORD&&COORD.id?COORD.id:'coord_'+nome.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'').slice(0,16);
-  COORD={id,nome,regiao:reg,filial:(document.getElementById('ob-filial').value||'').trim(),initials:ini(nome)};
-  lsSet('perfil',COORD);
+  var _loginEmail = _session && _session.user && _session.user.email || '';
+  COORD={id,nome,regiao:reg,filial:(document.getElementById('ob-filial').value||'').trim(),email:_loginEmail,initials:ini(nome)};
+  var _chave = COORD.email ? 'perfil_'+COORD.email : 'perfil';
+  lsSet(_chave,COORD);
   try{await supaUpsert('coordenadores',{id:COORD.id,nome:COORD.nome,regiao:COORD.regiao,filial:COORD.filial,updated_at:new Date().toISOString()});setSyncStatus('ok');}catch(e){setSyncStatus('err');}
   document.getElementById('ob').classList.remove('on');
   renderHdr();renderDash();toast('Bem-vindo, '+nome.split(' ')[0]+'!');
