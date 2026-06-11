@@ -635,12 +635,30 @@ async function aposLogin(){
   var email = _session && _session.user && _session.user.email;
   var chave = email ? 'perfil_'+email : 'perfil';
   var p = lsGet(chave);
-  if(p&&p.id){
-    COORD=p;
+
+  // Se não tem perfil salvo, tentar carregar do mapeamento fixo
+  if(!p || !p.id){
+    var PERFIS_FIXOS = {"campo01@castrillon.com.br": {"nome": "Jessica Ester Moreira Guimaraes", "regiao": "Goiania-GO", "filial": ""}, "campo02@castrillon.com.br": {"nome": "Gabrielly Cassia Vieira Bruch", "regiao": "Cuiabá e Várzea Grande", "filial": ""}, "gerson.prado@castrillon.com.br": {"nome": "Gerson", "regiao": "Administrador", "filial": ""}};
+    var pFixo = email && PERFIS_FIXOS[email];
+    if(pFixo){
+      var id = 'coord_' + pFixo.nome.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        .replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'').slice(0,20);
+      p = {id:id, nome:pFixo.nome, regiao:pFixo.regiao, filial:pFixo.filial,
+           email:email, initials:ini(pFixo.nome)};
+      lsSet(chave, p);
+    }
+  }
+
+  if(p && p.id){
+    COORD = p;
     COORD.email = email;
     await garantirCoordenador();
     renderHdr();renderDash();
-  }else{document.getElementById('ob').classList.add('on');}
+  } else {
+    // Só mostra onboarding se não for um usuário mapeado
+    document.getElementById('ob').classList.add('on');
+  }
 }
 
 async function garantirCoordenador(){
