@@ -156,6 +156,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .foto-upload-prog.on{display:block}
 .foto-upload-bar{height:3px;background:var(--or);width:0%;border-radius:99px;transition:width .3s}
 
+
+.canal-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.canal-btn{background:var(--bg);border:1px solid var(--bd);border-radius:99px;padding:6px 16px;font-size:13px;cursor:pointer;color:var(--mu);font-family:inherit;font-weight:500;transition:all .15s;-webkit-tap-highlight-color:transparent}
+.canal-btn.on{background:var(--or-lt);border-color:var(--or-bd);color:#712B13;font-weight:700}
+
 </style>
 </head>
 <body>
@@ -1044,7 +1049,7 @@ async function abrirSheet(tipo, preCliId){
     var now=new Date(), hh=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
     body='<div id="geo-status" class="geo-badge" style="margin-bottom:12px"><i class="ti ti-map-pin" style="font-size:12px"></i> Capturando localização...</div>'
       +'<div class="fg"><label>Oficina *</label><select id="fcli"><option value="">— selecione —</option>'+opts+'</select></div>'
-      +'<div class="f2"><div class="fg"><label>Tipo</label><select id="ftipo"><option>Rotina</option><option>Reativação</option><option>B2B</option><option>Máquina</option><option>Prospecção</option></select></div><div class="fg"><label>Canal</label><select id="fcanal"><option>Balcão</option><option>B2B</option></select></div></div>'
+      +'<div class="f2"><div class="fg"><label>Tipo</label><select id="ftipo"><option>Rotina</option><option>Reativação</option><option>B2B</option><option>Máquina</option><option>Prospecção</option></select></div><div class="fg"><label>Canal</label>'+buildCanalGrid(c.canal||'Balcão')+'</div></div>'
       +'<div class="f2"><div class="fg"><label>Data</label><input type="date" id="fdata" value="'+hoje()+'"></div><div class="fg"><label>Hora</label><input type="time" id="fhora" value="'+hh+'"></div></div>'
       +'<div class="fg"><label>Pedido gerado (R$)</label><input type="number" id="fped" placeholder="0" min="0"></div>'
       +'<div class="fg"><label>Observações</label><textarea id="fobs" placeholder="O que foi discutido..."></textarea></div>'
@@ -1072,7 +1077,7 @@ async function abrirSheet(tipo, preCliId){
       +'<div class="fg"><label>Tipo</label><select id="ftipo"><option>Oficina mecânica</option><option>Centro automotivo</option><option>Funilaria e pintura</option><option>Eletricista automotivo</option><option>Posto de serviços</option><option>Outro</option></select></div>'
       +'<div class="fg"><label>Responsável / Dono</label><input type="text" id="fresp" placeholder="Nome do contato" autocomplete="off"></div>'
       +'<div class="f2"><div class="fg"><label>Telefone</label><input type="tel" id="ftel" placeholder="11 9 ****-****"></div><div class="fg"><label>Bairro</label><input type="text" id="fbairro" placeholder="Bairro ou cidade"></div></div>'
-      +'<div class="f2"><div class="fg"><label>Canal atual</label><select id="fcanal"><option>Balcão</option><option>B2B</option><option>Não compra ainda</option></select></div><div class="fg"><label>Fat. mensal (R$)</label><input type="number" id="ffat" placeholder="0" min="0"></div></div>'
+      +'<div class="f2"><div class="fg"><label>Canal atual</label>'+buildCanalGrid([])+'</div><div class="fg"><label>Fat. mensal (R$)</label><input type="number" id="ffat" placeholder="0" min="0"></div></div>'
       +'<div class="f2"><div class="fg"><label>Status</label><select id="fstatus"><option>Ativa</option><option>Em ativação</option><option>Inativa</option><option>Novo</option></select></div><div class="fg"><label>Máquina cartão</label><select id="fmaq"><option value="false">Não instalada</option><option value="true">Instalada</option></select></div></div>'
       +'<div class="fg"><label>Observações</label><textarea id="fobs" placeholder="Contexto, potencial..."></textarea></div>'
       +'<div class="f2"><div class="fg"><label>Potencial total (R$/mês)</label><input type="number" id="fpot" placeholder="0" min="0"></div><div class="fg"><label>Share Castrillon (%)</label><input type="number" id="fshare" placeholder="Ex: 30" min="0" max="100"></div></div>'
@@ -1127,7 +1132,9 @@ async function editarCliente(cid){
     +'<div class="fg"><label>Nome</label><input type="text" id="fnome" value="'+esc(c.nome)+'"></div>'
     +'<div class="fg"><label>Responsável</label><input type="text" id="fresp" value="'+esc(c.resp)+'"></div>'
     +'<div class="f2"><div class="fg"><label>Telefone</label><input type="tel" id="ftel" value="'+esc(c.tel)+'"></div><div class="fg"><label>Bairro</label><input type="text" id="fbairro" value="'+esc(c.bairro)+'"></div></div>'
-    +'<div class="f2"><div class="fg"><label>Fat. (R$)</label><input type="number" id="ffat" value="'+c.fat+'"></div><div class="fg"><label>Canal</label><select id="fcanal"><option'+(c.canal==='Balcão'?' selected':'')+'>Balcão</option><option'+(c.canal==='B2B'?' selected':'')+'>B2B</option><option'+(c.canal==='Não compra ainda'?' selected':'')+'>Não compra ainda</option></select></div></div>'
+    +'<div class="f2"><div class="fg"><label>Fat. (R$)</label><input type="number" id="ffat" value="'+c.fat+'"></div><div class="fg"><label>Canal atual</label>'+buildCanalGrid((c.canal||'Balcão').split(', '))+'</div></div>'
+
+
     +'<div class="f2"><div class="fg"><label>Status</label><select id="fstatus"><option'+(c.status==='Ativa'?' selected':'')+'>Ativa</option><option'+(c.status==='Em ativação'?' selected':'')+'>Em ativação</option><option'+(c.status==='Inativa'?' selected':'')+'>Inativa</option><option'+(c.status==='Novo'?' selected':'')+'>Novo</option></select></div><div class="fg"><label>Máquina</label><select id="fmaq"><option value="false"'+(c.maquina?'':' selected')+'>Não</option><option value="true"'+(c.maquina?' selected':'')+'>Sim</option></select></div></div>'
     +'<div class="f2"><div class="fg"><label>Potencial (R$/mês)</label><input type="number" id="fpot" value="'+(c.potencial||0)+'"></div><div class="fg"><label>Share (%)</label><input type="number" id="fshare" value="'+(c.share||0)+'"></div></div>'
     +'<div class="fg"><label>Concorrentes</label><input type="text" id="fconc" value="'+esc(c.concorrentes||'')+'"></div>'
@@ -1147,6 +1154,22 @@ async function editarCliente(cid){
   },200);
 }
 
+
+
+function buildCanalGrid(selecionados){
+  var canais=["Balcão","B2B","Não compra ainda"];
+  var sel=Array.isArray(selecionados)?selecionados:((selecionados||'').split(',').map(function(s){return s.trim();}));
+  var items=canais.map(function(c){
+    var on=sel.indexOf(c)>=0;
+    return '<button type="button" class="canal-btn'+(on?' on':'')+'" data-v="'+c+'" onclick="this.classList.toggle(\'on\')">'+c+'</button>';
+  }).join('');
+  return '<div class="canal-wrap">'+items+'</div>';
+}
+function getCanaisSelecionados(){
+  var btns=document.querySelectorAll('.canal-btn.on');
+  var vals=Array.from(btns).map(function(b){return b.getAttribute('data-v');});
+  return vals.length?vals.join(', '):'Balcão';
+}
 
 function buildSistGrid(selecionados){
   var sistemas=["Mecânica Geral","Suspensão e Direção","Freios","Motor","Embreagem","Ar Condicionado","Elétrica","Câmbio","Diferencial","Injeção","Ignição","Troca de Óleo","Rolamentos","Cardan","Funilaria e Pintura","Radiador"];
@@ -1238,7 +1261,7 @@ async function salvarCliente(){
     bairro:(document.getElementById('fbairro')&&document.getElementById('fbairro').value||'').trim()||'—',
     fat:parseFloat(document.getElementById('ffat')&&document.getElementById('ffat').value)||0,
     meta:10000,
-    canal:document.getElementById('fcanal')&&document.getElementById('fcanal').value||'Balcão',
+    canal:getCanaisSelecionados(),
     status:document.getElementById('fstatus')&&document.getElementById('fstatus').value||'Ativa',
     maquina:(document.getElementById('fmaq')&&document.getElementById('fmaq').value)==='true',
     obs:(document.getElementById('fobs')&&document.getElementById('fobs').value||'').trim(),
@@ -1286,7 +1309,7 @@ async function atualizarCliente(cid){
     tel:(document.getElementById('ftel')&&document.getElementById('ftel').value||'').trim(),
     bairro:(document.getElementById('fbairro')&&document.getElementById('fbairro').value||'').trim(),
     fat:parseFloat(document.getElementById('ffat')&&document.getElementById('ffat').value)||0,
-    canal:document.getElementById('fcanal')&&document.getElementById('fcanal').value||'Balcão',
+    canal:getCanaisSelecionados(),
     status:document.getElementById('fstatus')&&document.getElementById('fstatus').value||'Ativa',
     maquina:(document.getElementById('fmaq')&&document.getElementById('fmaq').value)==='true',
     potencial:parseFloat(document.getElementById('fpot')&&document.getElementById('fpot').value)||0,
