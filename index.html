@@ -876,7 +876,7 @@ async function renderVis(){
   document.getElementById('vis-lista').innerHTML=V.length?V.slice().reverse().map(function(v){
     var geo=v.lat?'<i class="ti ti-map-pin" style="font-size:11px;color:#1D9E75;margin-left:4px"></i>':'';
     var nps=v.nps?'<span style="margin-left:6px">'+npsEmoji(v.nps)+'</span>':'';
-    return '<div class="vrow"><div class="vt">'+v.dDisp+'<br>'+v.hora+'</div><div class="vb"><div class="vn">'+v.cli+geo+nps+'</div><div class="vo">'+v.obs+'</div></div>'+vbd(v.tipo)+'</div>';
+    return '<div class="vrow"><div class="vt">'+v.dDisp+'<br>'+v.hora+'</div><div class="vb"><div class="vn">'+v.cli+geo+nps+'</div><div class="vo">'+v.obs+'</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">'+vbd(v.tipo)+'<button onclick="editarVisita(\''+v.id+'\')" style="background:none;border:1px solid var(--bd);border-radius:var(--rs);padding:4px 8px;font-size:11px;color:var(--mu);cursor:pointer;margin-top:4px"><i class=\'ti ti-pencil\'></i></button></div></div>';
   }).join(''):'<div class="emp" style="padding:16px 0"><i class="ti ti-route"></i><p>Nenhuma visita registrada</p></div>';
 }
 
@@ -1241,6 +1241,89 @@ async function salvarVisita(){
   }catch(e){setSyncStatus('err');toast('Erro ao sincronizar. Verifique a conexão.');}
   if(btn){btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar';}
   fecharSheet();renderDash();
+}
+
+
+async function editarVisita(vid){
+  var V=await carregarVisitas();
+  var v=V.find(function(x){return x.id===vid;});
+  if(!v){toast('Visita não encontrada');return;}
+  var C=await carregarClientes();
+  var cli=C.find(function(x){return x.id===v.cli_id;});
+
+  // Abrir sheet de visita com os dados preenchidos
+  document.getElementById('s-tit').textContent='Editar visita';
+  document.getElementById('sw').classList.add('on');
+
+  // Montar form de edição igual ao de nova visita mas com valores preenchidos
+  setTimeout(async function(){
+    // Reusar abrirSheet visita mas interceptar após renderizar
+    await abrirSheet('visita', v.cli_id);
+    // Aguardar o form renderizar e preencher os valores
+    setTimeout(function(){
+      // NPS
+      if(v.nps){
+        var npsBtn=document.querySelector('.nps-btn[data-n="'+v.nps+'"]');
+        if(npsBtn){selNps(v.nps);npsBtn.classList.add('on');}
+      }
+      // Share e potencial
+      var fshare=document.getElementById('fshare');
+      var fpot=document.getElementById('fpot-v');
+      var fobs=document.getElementById('fobs-v');
+      if(fshare)fshare.value=v.share||0;
+      if(fpot)fpot.value=v.potencial||0;
+      if(fobs)fobs.value=v.obs||'';
+      // Oportunidade
+      var foport=document.getElementById('foport');
+      if(foport)foport.value=v.oportunidade||'';
+      // Substituir botão Salvar por Atualizar
+      var btnSv=document.getElementById('btn-sv');
+      if(btnSv){
+        btnSv.textContent='Atualizar visita';
+        btnSv.onclick=function(){atualizarVisita(vid);};
+      }
+    }, 300);
+  }, 100);
+}
+
+async function atualizarVisita(vid){
+  setSyncStatus('sync');
+  var concNomes=[],concData=[],todosM=[];
+  for(var n=1;n<=5;n++){
+    var nm=(document.getElementById('conc'+n)&&document.getElementById('conc'+n).value||'').trim();
+    if(!nm)continue;
+    var cbs=document.querySelectorAll('input[name="mot'+n+'"]:checked');
+    concData.push({nome:nm,motivos:Array.from(cbs).map(function(cb){return cb.value;})});
+    concNomes.push(nm);
+  }
+  concData.forEach(function(c){c.motivos.forEach(function(m){if(todosM.indexOf(m)<0)todosM.push(m);});});
+  var npsVal=parseInt(document.getElementById('fnps')&&document.getElementById('fnps').value)||0;
+  var obj={
+    concorrentes:concNomes.join(', '),
+    conc_data:concData,
+    motivo_perda:todosM.join(', '),
+    share:parseFloat(document.getElementById('fshare')&&document.getElementById('fshare').value)||0,
+    potencial:parseFloat(document.getElementById('fpot-v')&&document.getElementById('fpot-v').value)||0,
+    obs:(document.getElementById('fobs-v')&&document.getElementById('fobs-v').value||'').trim()||'Visita registrada',
+    oportunidade:(document.getElementById('foport')&&document.getElementById('foport').value||'').trim(),
+    nps:npsVal,
+    updated_at:new Date().toISOString()
+  };
+  try{
+    await fetch(SUPA_URL+'/rest/v1/visitas?id=eq.'+vid,{
+      method:'PATCH',
+      headers:{...supaHeaders(),'Prefer':'return=minimal'},
+      body:JSON.stringify(obj)
+    });
+    lsSet('V_'+COORD.id,null);
+    setSyncStatus('ok');
+    toast('Visita atualizada!');
+    fecharSheet();
+    renderVis();
+  }catch(e){
+    setSyncStatus('err');
+    toast('Erro: '+e.message.slice(0,50));
+  }
 }
 
 async function salvarCliente(){
