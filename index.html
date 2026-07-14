@@ -1312,8 +1312,7 @@ async function atualizarVisita(vid){
     potencial:parseFloat(document.getElementById('fpot-v')&&document.getElementById('fpot-v').value)||0,
     obs:(document.getElementById('fobs-v')&&document.getElementById('fobs-v').value||'').trim()||'Visita registrada',
     oportunidade:(document.getElementById('foport')&&document.getElementById('foport').value||'').trim(),
-    nps:npsVal,
-    updated_at:new Date().toISOString()
+    nps:npsVal
   };
   try{
     await fetch(SUPA_URL+'/rest/v1/visitas?id=eq.'+vid,{
