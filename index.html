@@ -353,6 +353,13 @@ var SUPA_URL='https://imfknwmbmqvcmvrnhiwm.supabase.co';
 var SUPA_KEY='sb_publishable_vWhAU4pkft-kXH-T3awtqw_R3UTnV9I';
 var B2B=[[10,300],[20,600],[30,900],[40,1200],[50,1500],[60,1800],[70,2100],[80,2400],[90,2700],[100,3000]];
 var MOTIVOS=["Preço menor","Prazo de entrega mais rápido","Maior mix de produtos","Melhor prazo de pagamento","Relacionamento com o vendedor","Plataforma digital mais fácil","Pronta entrega local","Crédito ou limite maior","Promoção ou desconto especial","Outro"];
+
+function setSyncStatus(st,msg){
+  var dot=document.getElementById('sync-dot'),txt=document.getElementById('sync-txt');
+  if(dot)dot.className='sync-dot '+(st==='ok'?'ok':st==='err'?'err':'sync');
+  if(txt)txt.textContent=msg||(st==='ok'?'Sincronizado':st==='err'?'Sem conexão':'Sincronizando...');
+}
+
 var MES=new Date().toISOString().slice(0,7);
 var COORD=null,filtroAtual='todos',filtroArg='todos';
 var AV_CLS=['a0','a1','a2','a3'];
@@ -1266,60 +1273,104 @@ async function editarVisita(vid){
     // Reusar abrirSheet visita mas interceptar após renderizar
     await abrirSheet('visita', v.cli_id);
     // Aguardar o form renderizar e preencher os valores
-    setTimeout(function(){
-      // NPS
-      if(v.nps){
-        var npsBtn=document.querySelector('.nps-btn[data-n="'+v.nps+'"]');
-        if(npsBtn){selNps(v.nps);npsBtn.classList.add('on');}
-      }
-      // Share e potencial
-      var fshare=document.getElementById('fshare');
-      var fpot=document.getElementById('fpot-v');
-      var fobs=document.getElementById('fobs-v');
-      if(fshare)fshare.value=v.share||0;
-      if(fpot)fpot.value=v.potencial||0;
-      if(fobs)fobs.value=v.obs||'';
-      // Oportunidade
-      var foport=document.getElementById('foport');
-      if(foport)foport.value=v.oportunidade||'';
-      // Substituir botão Salvar por Atualizar
-      var btnSv=document.getElementById('btn-sv');
-      if(btnSv){
-        btnSv.textContent='Atualizar visita';
-        btnSv.onclick=function(){atualizarVisita(vid);};
-      }
-    }, 300);
+    // Preencher TODOS os campos com os dados da visita
+  setTimeout(function(){
+    function setV(id,val){var el=document.getElementById(id);if(el&&val!==undefined&&val!==null)el.value=val;}
+    // Cliente, tipo, canal
+    setV('fcli',v.cli_id||v.cliId);
+    setV('ftipo',v.tipo||'Rotina');
+    setV('fcanal',v.canal||'Balcão');
+    // Data e hora da visita original
+    setV('fdata',v.data);
+    setV('fhora',v.hora);
+    // Pedido, observações
+    setV('fped',v.pedido||0);
+    setV('fobs',v.obs&&v.obs!=='Visita registrada'?v.obs:'');
+    // Share, potencial, oportunidade, concorrente visita
+    setV('fshare',v.share||0);
+    setV('fpot',v.potencial||'');
+    setV('fopor',v.oportunidade||'');
+    // NPS — marcar o emoji
+    if(v.nps){
+      var fnps=document.getElementById('fnps');
+      if(fnps)fnps.value=v.nps;
+      document.querySelectorAll('.nps-btn').forEach(function(b){
+        b.classList.remove('on');
+        if(parseInt(b.getAttribute('data-n'))===v.nps)b.classList.add('on');
+      });
+    }
+    // Concorrentes — preencher inputs .cinp e checkboxes de motivos
+    if(v.conc_data&&v.conc_data.length){
+      v.conc_data.forEach(function(cd,i){
+        var inp=document.querySelector('.cinp[data-i="'+i+'"]');
+        if(inp&&cd.nome)inp.value=cd.nome;
+        (cd.motivos||[]).forEach(function(mot){
+          var cb=document.querySelector('input[name="mot'+i+'"][value="'+mot+'"]')||document.querySelector('input[name="mot'+(i+1)+'"][value="'+mot+'"]');
+          if(cb)cb.checked=true;
+        });
+      });
+    } else if(v.concorrentes){
+      v.concorrentes.split(',').map(function(x){return x.trim();}).filter(Boolean).forEach(function(nm,i){
+        var inp=document.querySelector('.cinp[data-i="'+i+'"]');
+        if(inp)inp.value=nm;
+      });
+    }
+    // Trocar botão salvar por atualizar
+    var btn=document.getElementById('btn-sv');
+    if(btn){
+      btn.innerHTML='<i class="ti ti-check"></i> Atualizar visita';
+      btn.onclick=function(){atualizarVisita(vid);};
+    }
+    var tit=document.getElementById('m-tit')||document.getElementById('s-tit');
+    if(tit)tit.textContent='Editar visita';
+  }, 500);
   }, 100);
 }
 
 async function atualizarVisita(vid){
   setSyncStatus('sync');
+  function gv(id){var el=document.getElementById(id);return el?el.value:null;}
   var concNomes=[],concData=[],todosM=[];
-  for(var n=1;n<=5;n++){
-    var nm=(document.getElementById('conc'+n)&&document.getElementById('conc'+n).value||'').trim();
+  // Coletar concorrentes dos inputs .cinp (mesmo formato do salvarVisita)
+  for(var n=0;n<5;n++){
+    var inp=document.querySelector('.cinp[data-i="'+n+'"]');
+    var nm=inp?inp.value.trim():'';
     if(!nm)continue;
     var cbs=document.querySelectorAll('input[name="mot'+n+'"]:checked');
-    concData.push({nome:nm,motivos:Array.from(cbs).map(function(cb){return cb.value;})});
+    if(!cbs.length)cbs=document.querySelectorAll('input[name="mot'+(n+1)+'"]:checked');
+    concData.push({nome:nm,motivos:Array.prototype.slice.call(cbs).map(function(cb){return cb.value;})});
     concNomes.push(nm);
   }
-  concData.forEach(function(c){c.motivos.forEach(function(m){if(todosM.indexOf(m)<0)todosM.push(m);});});
-  var npsVal=parseInt(document.getElementById('fnps')&&document.getElementById('fnps').value)||0;
+  concData.forEach(function(cc){cc.motivos.forEach(function(m){if(todosM.indexOf(m)<0)todosM.push(m);});});
+  var npsVal=parseInt(gv('fnps'))||0;
+  var dataV=gv('fdata');
   var obj={
+    data:dataV,
+    data_display:dataV?new Date(dataV+'T12:00').toLocaleDateString('pt-BR'):undefined,
+    hora:gv('fhora')||undefined,
+    tipo:gv('ftipo')||'Rotina',
+    canal:gv('fcanal')||'Balcão',
+    pedido:parseFloat(gv('fped'))||0,
+    obs:(gv('fobs')||'').trim()||'Visita registrada',
+    nps:npsVal,
+    share:parseFloat(gv('fshare'))||0,
+    potencial:parseFloat(gv('fpot'))||0,
+    oportunidade:(gv('fopor')||'').trim(),
     concorrentes:concNomes.join(', '),
     conc_data:concData,
-    motivo_perda:todosM.join(', '),
-    share:parseFloat(document.getElementById('fshare')&&document.getElementById('fshare').value)||0,
-    potencial:parseFloat(document.getElementById('fpot-v')&&document.getElementById('fpot-v').value)||0,
-    obs:(document.getElementById('fobs-v')&&document.getElementById('fobs-v').value||'').trim()||'Visita registrada',
-    oportunidade:(document.getElementById('foport')&&document.getElementById('foport').value||'').trim(),
-    nps:npsVal
+    motivo_perda:todosM.join(', ')
   };
+  // Remover chaves undefined para não sobrescrever com null
+  Object.keys(obj).forEach(function(k){if(obj[k]===undefined)delete obj[k];});
   try{
-    await fetch(SUPA_URL+'/rest/v1/visitas?id=eq.'+vid,{
+    var r=await fetch(SUPA_URL+'/rest/v1/visitas?id=eq.'+vid,{
       method:'PATCH',
-      headers:{...supaHeaders(),'Prefer':'return=minimal'},
+      headers:{...supaHeaders(),'Prefer':'return=representation'},
       body:JSON.stringify(obj)
     });
+    if(!r.ok)throw new Error(await r.text());
+    var rows=await r.json();
+    if(!rows||!rows.length)throw new Error('Nenhum registro atualizado (RLS).');
     lsSet('V_'+COORD.id,null);
     setSyncStatus('ok');
     toast('Visita atualizada!');
