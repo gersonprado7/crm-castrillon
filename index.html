@@ -588,18 +588,16 @@ async function uploadFoto(cliId){
 function supaHeaders(){return{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'return=minimal'};}
 async function supaGet(table,filter){var r=await fetch(SUPA_URL+'/rest/v1/'+table+'?'+filter,{headers:supaHeaders()});if(!r.ok)throw new Error(await r.text());return r.json();}
 async function supaUpsert(table,obj){var r=await fetch(SUPA_URL+'/rest/v1/'+table,{method:'POST',headers:{...supaHeaders(),'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(obj)});if(!r.ok)throw new Error(await r.text());return true;}
-async function supaPatch(table,id,obj){var r=await fetch(SUPA_URL+'/rest/v1/'+table+'?id=eq.'+id,{method:'PATCH',headers:{...supaHeaders(),'Prefer':'return=minimal'},body:JSON.stringify(obj)});if(!r.ok)throw new Error(await r.text());return true;}
-
-// ── LOCAL STORAGE
-function lsGet(k){try{var v=localStorage.getItem('crm_'+k);return v?JSON.parse(v):null;}catch(e){return null;}}
-function lsSet(k,v){try{localStorage.setItem('crm_'+k,JSON.stringify(v));}catch(e){}}
-
-function setSyncStatus(st){var dot=document.getElementById('sync-dot'),txt=document.getElementById('sync-txt');if(!dot)return;dot.className='sync-dot '+(st==='ok'?'ok':st==='err'?'err':'sync');txt.textContent=st==='ok'?'Sincronizado':st==='err'?'Sem conexão':'Sincronizando...';}
-
-// ── CARREGAR DADOS
-async function carregarClientes(){
-  try{var rows=await supaGet('clientes','coord_id=eq.'+COORD.id+'&order=nome');var C=rows.map(function(r){return{id:r.id,codigo:r.codigo||'',cnpj:r.cnpj||'',nome:r.nome,tipo:r.tipo,resp:r.resp,tel:r.tel,bairro:r.bairro,fat:r.fat||0,meta:r.meta||10000,canal:r.canal,status:r.status,maquina:r.maquina,obs:r.obs||'',potencial:r.potencial||0,share:r.share||0,concorrentes:r.concorrentes||'',ulv:r.ulv_data||'',ulvDisp:r.ulv_display||'',qtdMecanicos:r.qtd_mecanicos||0,qtdElevadores:r.qtd_elevadores||0,sistemas:r.sistemas_atendidos||[],fotoFachada:r.foto_fachada||null};}); lsSet('C_'+COORD.id,C);return C;}
-  catch(e){setSyncStatus('err');return lsGet('C_'+COORD.id)||[];}
+async function supaPatch(table,filter,obj){
+  var r=await fetch(SUPA_URL+'/rest/v1/'+table+'?'+filter,{
+    method:'PATCH',
+    headers:{...supaHeaders(),'Prefer':'return=representation'},
+    body:JSON.stringify(obj)
+  });
+  if(!r.ok)throw new Error(await r.text());
+  var rows=await r.json();
+  if(!rows||!rows.length)throw new Error('Nenhum registro atualizado. Verifique as permissões (RLS) no Supabase.');
+  return true;
 }
 async function carregarVisitas(){
   try{var rows=await supaGet('visitas','coord_id=eq.'+COORD.id+'&data=gte.'+MES+'-01&order=data,hora');var V=rows.map(function(r){return{id:r.id,data:r.data,hora:r.hora,dDisp:r.data_display,cli:r.cli_nome,cliId:r.cli_id,tipo:r.tipo,obs:r.obs||'Visita registrada',pedido:r.pedido||0,canal:r.canal||'Balcão',concorrentes:r.concorrentes||'',concData:r.conc_data||[],motivoPerda:r.motivo_perda||'',share:r.share||0,potencial:r.potencial||0,nps:r.nps||0,lat:r.lat||null,lng:r.lng||null};}); lsSet('V_'+COORD.id,V);return V;}
@@ -646,9 +644,11 @@ async function aposLogin(){
     var PERFIS_FIXOS = {"campo01@castrillon.com.br": {"nome": "Jessica Ester Moreira Guimaraes", "regiao": "Goiania-GO", "filial": ""}, "campo02@castrillon.com.br": {"nome": "Gabrielly Cassia Vieira Bruch", "regiao": "Cuiabá e Várzea Grande", "filial": ""}, "gerson.prado@castrillon.com.br": {"nome": "Gerson", "regiao": "Administrador", "filial": ""}};
     var pFixo = email && PERFIS_FIXOS[email];
     if(pFixo){
-      var id = 'coord_' + pFixo.nome.toLowerCase()
+      // Usar IDs fixos conforme cadastro no banco
+      var ID_MAP = {"campo01@castrillon.com.br": "coord_jessica_ester_mo", "campo02@castrillon.com.br": "coord_gabrielly_cassia", "gerson.prado@castrillon.com.br": "coord_gerson"};
+      var id = ID_MAP[email] || ('coord_' + pFixo.nome.toLowerCase()
         .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-        .replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'').slice(0,20);
+        .replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'').slice(0,20));
       p = {id:id, nome:pFixo.nome, regiao:pFixo.regiao, filial:pFixo.filial,
            email:email, initials:ini(pFixo.nome)};
       lsSet(chave, p);
@@ -656,6 +656,12 @@ async function aposLogin(){
   }
 
   if(p && p.id){
+    // Corrigir ID se estiver desatualizado
+    var ID_MAP_FIXO = {"campo01@castrillon.com.br": "coord_jessica_ester_mo", "campo02@castrillon.com.br": "coord_gabrielly_cassia", "gerson.prado@castrillon.com.br": "coord_gerson"};
+    if(email && ID_MAP_FIXO[email] && p.id !== ID_MAP_FIXO[email]){
+      p.id = ID_MAP_FIXO[email];
+      lsSet(chave, p);
+    }
     COORD = p;
     COORD.email = email;
     await garantirCoordenador();
@@ -1049,7 +1055,7 @@ async function abrirSheet(tipo, preCliId){
     var now=new Date(), hh=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
     body='<div id="geo-status" class="geo-badge" style="margin-bottom:12px"><i class="ti ti-map-pin" style="font-size:12px"></i> Capturando localização...</div>'
       +'<div class="fg"><label>Oficina *</label><select id="fcli"><option value="">— selecione —</option>'+opts+'</select></div>'
-      +'<div class="f2"><div class="fg"><label>Tipo</label><select id="ftipo"><option>Rotina</option><option>Reativação</option><option>B2B</option><option>Máquina</option><option>Prospecção</option></select></div><div class="fg"><label>Canal</label>'+buildCanalGrid(c.canal||'Balcão')+'</div></div>'
+      +'<div class="f2"><div class="fg"><label>Tipo</label><select id="ftipo"><option>Rotina</option><option>Reativação</option><option>B2B</option><option>Máquina</option><option>Prospecção</option></select></div><div class="fg"><label>Canal</label><select id="fcanal"><option>Balcão</option><option>B2B</option></select></div></div>'
       +'<div class="f2"><div class="fg"><label>Data</label><input type="date" id="fdata" value="'+hoje()+'"></div><div class="fg"><label>Hora</label><input type="time" id="fhora" value="'+hh+'"></div></div>'
       +'<div class="fg"><label>Pedido gerado (R$)</label><input type="number" id="fped" placeholder="0" min="0"></div>'
       +'<div class="fg"><label>Observações</label><textarea id="fobs" placeholder="O que foi discutido..."></textarea></div>'
@@ -1329,6 +1335,8 @@ async function atualizarVisita(vid){
 async function salvarCliente(){
   var nome=(document.getElementById('fnome').value||'').trim();
   if(!nome){toast('Informe o nome da oficina');return;}
+  var cod=(document.getElementById('fcodigo')&&document.getElementById('fcodigo').value||'').trim();
+  if(!cod&&!confirm('Atenção: sem código o cliente não receberá dados de vendas na importação. Continuar mesmo assim?'))return;
   var btn=document.getElementById('btn-sc');
   if(btn){btn.disabled=true;btn.textContent='Salvando...';}
   setSyncStatus('sync');
@@ -1413,7 +1421,9 @@ async function atualizarCliente(cid){
     }
     // Remover foto
     if(_fotoRemover){ obj.foto_fachada = null; _fotoRemover=false; }
-    await supaUpsert('clientes',obj);
+    // Usar PATCH para não sobrescrever coord_id
+    delete obj.id; delete obj.coord_id;
+    await supaPatch('clientes','id=eq.'+cid,obj);
     lsSet('C_'+COORD.id,null);
     setSyncStatus('ok');
     toast('Cliente atualizado!');
