@@ -266,7 +266,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="kpi"><div class="kl">Hoje</div><div class="kv" id="v-hj">0</div><div class="ks">registradas</div></div>
     <div class="kpi"><div class="kl">No mês</div><div class="kv" id="v-mes">0</div><div class="ks">meta 6–10/dia</div></div>
   </div>
-  <div class="card"><div class="ct">Histórico</div><div id="vis-lista"><div class="emp" style="padding:16px 0"><i class="ti ti-route"></i><p>Nenhuma visita registrada</p></div></div></div>
+  <div class="card"><div class="ct" style="display:flex;justify-content:space-between;align-items:center">Histórico<select id="vis-mes-filtro" onchange="renderVis()" style="font-size:13px;padding:5px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--card)"></select></div><div id="vis-lista"><div class="emp" style="padding:16px 0"><i class="ti ti-route"></i><p>Nenhuma visita registrada</p></div></div></div>
   <button class="fab" onclick="abrirSheet('visita')"><i class="ti ti-plus"></i></button>
 </div>
 
@@ -607,7 +607,7 @@ async function supaPatch(table,filter,obj){
   return true;
 }
 async function carregarVisitas(){
-  try{var rows=await supaGet('visitas','coord_id=eq.'+COORD.id+'&data=gte.'+MES+'-01&order=data,hora');var V=rows.map(function(r){return{id:r.id,data:r.data,hora:r.hora,dDisp:r.data_display,cli:r.cli_nome,cliId:r.cli_id,tipo:r.tipo,obs:r.obs||'Visita registrada',pedido:r.pedido||0,canal:r.canal||'Balcão',concorrentes:r.concorrentes||'',concData:r.conc_data||[],motivoPerda:r.motivo_perda||'',share:r.share||0,potencial:r.potencial||0,nps:r.nps||0,lat:r.lat||null,lng:r.lng||null};}); lsSet('V_'+COORD.id,V);return V;}
+  try{var rows=await supaGet('visitas','coord_id=eq.'+COORD.id+'&order=data,hora&limit=5000');var V=rows.map(function(r){return{id:r.id,data:r.data,hora:r.hora,dDisp:r.data_display,cli:r.cli_nome,cliId:r.cli_id,tipo:r.tipo,obs:r.obs||'Visita registrada',pedido:r.pedido||0,canal:r.canal||'Balcão',concorrentes:r.concorrentes||'',concData:r.conc_data||[],motivoPerda:r.motivo_perda||'',share:r.share||0,potencial:r.potencial||0,nps:r.nps||0,lat:r.lat||null,lng:r.lng||null};}); lsSet('V_'+COORD.id,V);return V;}
   catch(e){setSyncStatus('err');return lsGet('V_'+COORD.id)||[];}
 }
 async function carregarAtivacoes(){
@@ -885,8 +885,25 @@ async function renderVis(){
   var V=await carregarVisitas();
   var hj=V.filter(function(v){return v.data===hoje();});
   document.getElementById('v-hj').textContent=hj.length;
-  document.getElementById('v-mes').textContent=V.length;
-  document.getElementById('vis-lista').innerHTML=V.length?V.slice().reverse().map(function(v){
+
+  // Popular filtro de mês com os meses disponíveis
+  var sel=document.getElementById('vis-mes-filtro');
+  var mesesDisp=[];
+  V.forEach(function(v){var m=(v.data||'').slice(0,7);if(m&&mesesDisp.indexOf(m)<0)mesesDisp.push(m);});
+  mesesDisp.sort().reverse();
+  if(sel){
+    var atual=sel.dataset.pop==='1'?sel.value:MES;
+    var MN=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    sel.innerHTML='<option value="">Todos os meses</option>'+mesesDisp.map(function(m){
+      var lbl=MN[parseInt(m.slice(5,7))-1]+'/'+m.slice(2,4);
+      return '<option value="'+m+'"'+(m===atual?' selected':'')+'>'+lbl+'</option>';
+    }).join('');
+    sel.dataset.pop='1';
+  }
+  var mesFiltro=sel?sel.value:'';
+  var Vf=mesFiltro?V.filter(function(v){return (v.data||'').slice(0,7)===mesFiltro;}):V;
+  document.getElementById('v-mes').textContent=Vf.length;
+  document.getElementById('vis-lista').innerHTML=Vf.length?Vf.slice().reverse().map(function(v){
     var geo=v.lat?'<i class="ti ti-map-pin" style="font-size:11px;color:#1D9E75;margin-left:4px"></i>':'';
     var nps=v.nps?'<span style="margin-left:6px">'+npsEmoji(v.nps)+'</span>':'';
     return '<div class="vrow"><div class="vt">'+v.dDisp+'<br>'+v.hora+'</div><div class="vb"><div class="vn">'+v.cli+geo+nps+'</div><div class="vo">'+v.obs+'</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">'+vbd(v.tipo)+'<button onclick="editarVisita(\''+v.id+'\')" style="background:none;border:1px solid var(--bd);border-radius:var(--rs);padding:4px 8px;font-size:11px;color:var(--mu);cursor:pointer;margin-top:4px"><i class=\'ti ti-pencil\'></i></button></div></div>';
