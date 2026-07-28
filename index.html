@@ -354,6 +354,10 @@ var SUPA_KEY='sb_publishable_vWhAU4pkft-kXH-T3awtqw_R3UTnV9I';
 var B2B=[[10,300],[20,600],[30,900],[40,1200],[50,1500],[60,1800],[70,2100],[80,2400],[90,2700],[100,3000]];
 var MOTIVOS=["Preço menor","Prazo de entrega mais rápido","Maior mix de produtos","Melhor prazo de pagamento","Relacionamento com o vendedor","Plataforma digital mais fácil","Pronta entrega local","Crédito ou limite maior","Promoção ou desconto especial","Outro"];
 
+
+function lsGet(k){try{var v=localStorage.getItem('crm_'+k);return v?JSON.parse(v):null;}catch(e){return null;}}
+function lsSet(k,v){try{if(v===null)localStorage.removeItem('crm_'+k);else localStorage.setItem('crm_'+k,JSON.stringify(v));}catch(e){}}
+
 function setSyncStatus(st,msg){
   var dot=document.getElementById('sync-dot'),txt=document.getElementById('sync-txt');
   if(dot)dot.className='sync-dot '+(st==='ok'?'ok':st==='err'?'err':'sync');
