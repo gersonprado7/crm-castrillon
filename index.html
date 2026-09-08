@@ -249,6 +249,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div style="height:12px"></div>
   <div class="fil">
     <button class="fb on" onclick="filtrar('todos',this)">Todos</button>
+    <button class="fb" onclick="filtrar('fixa',this)" style="border-color:var(--or);color:var(--or)">★ Fixa</button>
     <button class="fb" onclick="filtrar('ativos',this)">Ativos</button>
     <button class="fb" onclick="filtrar('inativos',this)">Inativos</button>
     <button class="fb" onclick="filtrar('b2b',this)">B2B</button>
@@ -610,6 +611,11 @@ async function supaPatch(table,filter,obj){
   if(!rows||!rows.length)throw new Error('Nenhum registro atualizado. Verifique as permissões (RLS) no Supabase.');
   return true;
 }
+async function carregarClientes(){
+  try{var rows=await supaGet('clientes','coord_id=eq.'+COORD.id+'&order=nome');var C=rows.map(function(r){return{id:r.id,codigo:r.codigo||'',cnpj:r.cnpj||'',nome:r.nome,tipo:r.tipo,resp:r.resp,tel:r.tel,bairro:r.bairro,fat:r.fat||0,meta:r.meta||10000,canal:r.canal,status:r.status,maquina:r.maquina,obs:r.obs||'',potencial:r.potencial||0,share:r.share||0,concorrentes:r.concorrentes||'',ulv:r.ulv_data||'',ulvDisp:r.ulv_display||'',qtdMecanicos:r.qtd_mecanicos||0,qtdElevadores:r.qtd_elevadores||0,sistemas:r.sistemas_atendidos||[],fotoFachada:r.foto_fachada||null,carteiraFixa:!!r.carteira_fixa,criadoEm:r.criado_em||''};}); lsSet('C_'+COORD.id,C);return C;}
+  catch(e){setSyncStatus('err');return lsGet('C_'+COORD.id)||[];}
+}
+
 async function carregarVisitas(){
   try{var rows=await supaGet('visitas','coord_id=eq.'+COORD.id+'&order=data,hora&limit=5000');var V=rows.map(function(r){return{id:r.id,data:r.data,hora:r.hora,dDisp:r.data_display,cli:r.cli_nome,cliId:r.cli_id,tipo:r.tipo,obs:r.obs||'Visita registrada',pedido:r.pedido||0,canal:r.canal||'Balcão',concorrentes:r.concorrentes||'',concData:r.conc_data||[],motivoPerda:r.motivo_perda||'',share:r.share||0,potencial:r.potencial||0,nps:r.nps||0,lat:r.lat||null,lng:r.lng||null};}); lsSet('V_'+COORD.id,V);return V;}
   catch(e){setSyncStatus('err');return lsGet('V_'+COORD.id)||[];}
@@ -831,6 +837,7 @@ async function renderCart(f){
   if(!C.length){wrap.innerHTML='<div class="emp"><i class="ti ti-building-store"></i><p>Carteira vazia.</p><button class="empb" id="btn-cart-vz"><i class="ti ti-plus"></i> Cadastrar</button></div>';if(document.getElementById('btn-cart-vz'))document.getElementById('btn-cart-vz').onclick=function(){abrirSheet('cliente');};return;}
   var hoje_ts=new Date().getTime();
   var L=C.filter(function(c){
+    if(f==='fixa')return c.carteiraFixa;
     if(f==='ativos')return c.status==='Ativa';
     if(f==='inativos')return c.status==='Inativa';
     if(f==='b2b')return c.canal==='B2B';
@@ -848,7 +855,7 @@ async function renderCart(f){
     var col=c.fat>=c.meta?'#1D9E75':c.fat>=c.meta*.7?'#BA7517':'#E24B4A';
     var dias=c.ulv?Math.round((hoje_ts2-new Date(c.ulv+'T12:00').getTime())/(1000*60*60*24)):null;
     var semv=dias&&dias>=30?'<span class="b br" style="font-size:9px;margin-left:4px">'+dias+'d</span>':'';
-    return '<div class="row" data-cid="'+c.id+'"  ><div class="rav '+AV_CLS[i%4]+'">'+ini(c.nome)+'</div><div class="rb"><div class="rn">'+c.nome+semv+'</div><div class="rd">'+(c.codigo?'#'+c.codigo+' · ':'')+(c.bairro||'')+'</div><div style="display:flex;align-items:center;gap:6px;margin-top:4px"><div style="flex:1;height:3px;background:var(--bd);border-radius:99px;max-width:80px"><div style="height:3px;background:'+col+';width:'+p+'%;border-radius:99px"></div></div><span style="font-size:11px;color:var(--mu)">'+p+'%</span></div></div><div class="rr"><div style="font-size:13px;font-weight:600">'+R(c.fat)+'</div>'+bdg(c.status)+'</div></div>';
+    return '<div class="row" data-cid="'+c.id+'"  ><div class="rav '+AV_CLS[i%4]+'">'+ini(c.nome)+'</div><div class="rb"><div class="rn">'+c.nome+(c.carteiraFixa?' <span style="background:var(--or);color:#fff;font-size:8px;font-weight:800;padding:1px 5px;border-radius:99px;vertical-align:middle">FIXA</span>':'')+semv+'</div><div class="rd">'+(c.codigo?'#'+c.codigo+' · ':'')+(c.bairro||'')+'</div><div style="display:flex;align-items:center;gap:6px;margin-top:4px"><div style="flex:1;height:3px;background:var(--bd);border-radius:99px;max-width:80px"><div style="height:3px;background:'+col+';width:'+p+'%;border-radius:99px"></div></div><span style="font-size:11px;color:var(--mu)">'+p+'%</span></div></div><div class="rr"><div style="font-size:13px;font-weight:600">'+R(c.fat)+'</div>'+bdg(c.status)+'</div></div>';
   }).join('')+'</div>';
   document.getElementById('cart-lista').addEventListener('click',function(e){var r=e.target.closest('[data-cid]');if(r)verCliente(r.getAttribute('data-cid'));});
 }
