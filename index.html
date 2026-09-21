@@ -624,8 +624,43 @@ async function carregarAtivacoes(){
   try{var rows=await supaGet('ativacoes','coord_id=eq.'+COORD.id+'&order=criado_em.desc');var A=rows.map(function(r){return{id:r.id,nome:r.nome,tipo:r.tipo,contato:r.contato,tel:r.tel,bairro:r.bairro,etapa:r.etapa,obs:r.obs,data:r.data};}); lsSet('A_'+COORD.id,A);return A;}
   catch(e){setSyncStatus('err');return lsGet('A_'+COORD.id)||[];}
 }
-async function carregarRota(){return lsGet('rota_'+COORD.id+':'+semanaAtual())||[];}
-async function salvarRota(R){lsSet('rota_'+COORD.id+':'+semanaAtual(),R);}
+function semanaAtual(){
+  var d=new Date();
+  var dow=d.getDay();
+  // Domingo conta como a semana que começa amanhã (roteiro montado no domingo vale p/ semana seguinte)
+  var diff=d.getDate()-dow+1;
+  if(dow===0)diff=d.getDate()+1;
+  var mon=new Date(d.getFullYear(),d.getMonth(),diff);
+  return mon.getFullYear()+'-'+String(mon.getMonth()+1).padStart(2,'0')+'-'+String(mon.getDate()).padStart(2,'0');
+}
+async function carregarRota(){
+  var sem=semanaAtual();
+  try{
+    var rows=await supaGet('rotas','coord_id=eq.'+COORD.id+'&semana=eq.'+sem+'&limit=1');
+    if(rows.length){lsSet('rota_'+COORD.id+':'+sem,rows[0].dados||[]);return rows[0].dados||[];}
+    // Sem rota desta semana: recuperar a última montada (até 8 dias atrás) e migrar
+    var ult=await supaGet('rotas','coord_id=eq.'+COORD.id+'&order=atualizado_em.desc&limit=1');
+    if(ult.length){
+      var diasAtras=(Date.now()-new Date(ult[0].atualizado_em).getTime())/864e5;
+      if(diasAtras<=8&&(ult[0].dados||[]).length){
+        await salvarRota(ult[0].dados);
+        return ult[0].dados;
+      }
+    }
+    return lsGet('rota_'+COORD.id+':'+sem)||[];
+  }catch(e){return lsGet('rota_'+COORD.id+':'+sem)||[];}
+}
+async function salvarRota(R){
+  var sem=semanaAtual();
+  lsSet('rota_'+COORD.id+':'+sem,R);
+  try{
+    await fetch(SUPA_URL+'/rest/v1/rotas',{
+      method:'POST',
+      headers:{...supaHeaders(),'Prefer':'resolution=merge-duplicates,return=minimal'},
+      body:JSON.stringify([{id:COORD.id+'_'+sem,coord_id:COORD.id,semana:sem,dados:R,atualizado_em:new Date().toISOString()}])
+    });
+  }catch(e){/* offline: mantém no cache local */}
+}
 
 // ── UTILITÁRIOS
 function hoje(){return new Date().toISOString().slice(0,10);}
@@ -635,7 +670,7 @@ function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace
 function bdg(s){var m={'Ativa':'bg','Em ativação':'ba','Inativa':'br','Novo':'bb'};return '<span class="b '+(m[s]||'bx')+'">'+s+'</span>';}
 function vbd(t){var m={'Rotina':'bx','B2B':'bb','Reativação':'ba','Máquina':'bg','Prospecção':'bb'};return '<span class="b '+(m[t]||'bx')+'">'+t+'</span>';}
 function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');setTimeout(function(){t.classList.remove('on');},2500);}
-function semanaAtual(){var d=new Date(),dow=d.getDay(),diff=d.getDate()-dow+(dow===0?-6:1);var mon=new Date(d.setDate(diff));return mon.toISOString().slice(0,10);}
+
 function diasSemana(){var dias=['Seg','Ter','Qua','Qui','Sex','Sáb'];var base=new Date();var dow=base.getDay();var diff=base.getDate()-dow+(dow===0?-6:1);var out=[];for(var i=0;i<6;i++){var d2=new Date(base.setDate(diff+i));out.push({label:dias[i],date:d2.toISOString().slice(0,10)});base=new Date(d2);}return out;}
 function npsEmoji(n){if(!n)return'—';if(n>=4)return'😊';if(n===3)return'😐';return'😞';}
 function npsLabel(n){if(!n)return'Sem avaliações';if(n>=4)return'Satisfeito';if(n===3)return'Neutro';return'Insatisfeito';}
