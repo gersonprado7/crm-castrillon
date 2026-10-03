@@ -599,6 +599,7 @@ async function uploadFoto(cliId){
 // ── SUPABASE
 function supaHeaders(){return{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'return=minimal'};}
 async function supaGet(table,filter){var r=await fetch(SUPA_URL+'/rest/v1/'+table+'?'+filter,{headers:supaHeaders()});if(!r.ok)throw new Error(await r.text());return r.json();}
+async function supaGetAll(table,filter){var rows=[],pg=0,ps=1000;while(true){var chunk=await supaGet(table,filter+'&limit='+ps+'&offset='+(pg*ps));rows=rows.concat(chunk);if(chunk.length<ps)break;pg++;}return rows;}
 async function supaUpsert(table,obj){var r=await fetch(SUPA_URL+'/rest/v1/'+table,{method:'POST',headers:{...supaHeaders(),'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(obj)});if(!r.ok)throw new Error(await r.text());return true;}
 async function supaPatch(table,filter,obj){
   var r=await fetch(SUPA_URL+'/rest/v1/'+table+'?'+filter,{
@@ -612,16 +613,16 @@ async function supaPatch(table,filter,obj){
   return true;
 }
 async function carregarClientes(){
-  try{var rows=await supaGet('clientes','coord_id=eq.'+COORD.id+'&order=nome');var C=rows.map(function(r){return{id:r.id,codigo:r.codigo||'',cnpj:r.cnpj||'',nome:r.nome,tipo:r.tipo,resp:r.resp,tel:r.tel,bairro:r.bairro,fat:r.fat||0,meta:r.meta||10000,canal:r.canal,status:r.status,maquina:r.maquina,obs:r.obs||'',potencial:r.potencial||0,share:r.share||0,concorrentes:r.concorrentes||'',ulv:r.ulv_data||'',ulvDisp:r.ulv_display||'',qtdMecanicos:r.qtd_mecanicos||0,qtdElevadores:r.qtd_elevadores||0,sistemas:r.sistemas_atendidos||[],fotoFachada:r.foto_fachada||null,carteiraFixa:!!r.carteira_fixa,criadoEm:r.criado_em||''};}); lsSet('C_'+COORD.id,C);return C;}
+  try{var rows=await supaGetAll('clientes','coord_id=eq.'+COORD.id+'&order=nome');var C=rows.map(function(r){return{id:r.id,codigo:r.codigo||'',cnpj:r.cnpj||'',nome:r.nome,tipo:r.tipo,resp:r.resp,tel:r.tel,bairro:r.bairro,fat:r.fat||0,meta:r.meta||10000,canal:r.canal,status:r.status,maquina:r.maquina,obs:r.obs||'',potencial:r.potencial||0,share:r.share||0,concorrentes:r.concorrentes||'',ulv:r.ulv_data||'',ulvDisp:r.ulv_display||'',qtdMecanicos:r.qtd_mecanicos||0,qtdElevadores:r.qtd_elevadores||0,sistemas:r.sistemas_atendidos||[],fotoFachada:r.foto_fachada||null,carteiraFixa:!!r.carteira_fixa,criadoEm:r.criado_em||''};}); lsSet('C_'+COORD.id,C);return C;}
   catch(e){setSyncStatus('err');return lsGet('C_'+COORD.id)||[];}
 }
 
 async function carregarVisitas(){
-  try{var rows=await supaGet('visitas','coord_id=eq.'+COORD.id+'&order=data,hora&limit=5000');var V=rows.map(function(r){return{id:r.id,data:r.data,hora:r.hora,dDisp:r.data_display,cli:r.cli_nome,cliId:r.cli_id,tipo:r.tipo,obs:r.obs||'Visita registrada',pedido:r.pedido||0,canal:r.canal||'Balcão',concorrentes:r.concorrentes||'',concData:r.conc_data||[],motivoPerda:r.motivo_perda||'',share:r.share||0,potencial:r.potencial||0,nps:r.nps||0,lat:r.lat||null,lng:r.lng||null};}); lsSet('V_'+COORD.id,V);return V;}
+  try{var rows=await supaGetAll('visitas','coord_id=eq.'+COORD.id+'&order=data,hora');var V=rows.map(function(r){return{id:r.id,data:r.data,hora:r.hora,dDisp:r.data_display,cli:r.cli_nome,cliId:r.cli_id,tipo:r.tipo,obs:r.obs||'Visita registrada',pedido:r.pedido||0,canal:r.canal||'Balcão',concorrentes:r.concorrentes||'',concData:r.conc_data||[],motivoPerda:r.motivo_perda||'',share:r.share||0,potencial:r.potencial||0,nps:r.nps||0,lat:r.lat||null,lng:r.lng||null};}); lsSet('V_'+COORD.id,V);return V;}
   catch(e){setSyncStatus('err');return lsGet('V_'+COORD.id)||[];}
 }
 async function carregarAtivacoes(){
-  try{var rows=await supaGet('ativacoes','coord_id=eq.'+COORD.id+'&order=criado_em.desc');var A=rows.map(function(r){return{id:r.id,nome:r.nome,tipo:r.tipo,contato:r.contato,tel:r.tel,bairro:r.bairro,etapa:r.etapa,obs:r.obs,data:r.data};}); lsSet('A_'+COORD.id,A);return A;}
+  try{var rows=await supaGetAll('ativacoes','coord_id=eq.'+COORD.id+'&order=criado_em.desc');var A=rows.map(function(r){return{id:r.id,nome:r.nome,tipo:r.tipo,contato:r.contato,tel:r.tel,bairro:r.bairro,etapa:r.etapa,obs:r.obs,data:r.data};}); lsSet('A_'+COORD.id,A);return A;}
   catch(e){setSyncStatus('err');return lsGet('A_'+COORD.id)||[];}
 }
 function semanaAtual(){
