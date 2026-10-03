@@ -617,8 +617,26 @@ async function carregarClientes(){
   catch(e){setSyncStatus('err');return lsGet('C_'+COORD.id)||[];}
 }
 
+async function sincronizarPendentes(){
+  if(!COORD)return;
+  var q=lsGet('pendV_'+COORD.id)||[];
+  if(!q.length)return;
+  var resto=[];
+  for(var i=0;i<q.length;i++){
+    try{
+      await supaUpsert('visitas',q[i].v);
+      if(q[i].cp){try{await supaPatch('clientes','id=eq.'+q[i].cp.id,{ulv_data:q[i].cp.ulv_data,ulv_display:q[i].cp.ulv_display,updated_at:new Date().toISOString()});}catch(e2){}}
+    }catch(e){resto.push(q[i]);}
+  }
+  lsSet('pendV_'+COORD.id,resto);
+  if(resto.length<q.length){lsSet('V_'+COORD.id,null);toast((q.length-resto.length)+' visita(s) pendente(s) sincronizada(s)!');}
+}
 async function carregarVisitas(){
-  try{var rows=await supaGetAll('visitas','coord_id=eq.'+COORD.id+'&order=data,hora');var V=rows.map(function(r){return{id:r.id,data:r.data,hora:r.hora,dDisp:r.data_display,cli:r.cli_nome,cliId:r.cli_id,tipo:r.tipo,obs:r.obs||'Visita registrada',pedido:r.pedido||0,canal:r.canal||'Balcão',concorrentes:r.concorrentes||'',concData:r.conc_data||[],motivoPerda:r.motivo_perda||'',share:r.share||0,potencial:r.potencial||0,nps:r.nps||0,lat:r.lat||null,lng:r.lng||null};}); lsSet('V_'+COORD.id,V);return V;}
+  try{await sincronizarPendentes();}catch(eSp){}
+  try{var rows=await supaGetAll('visitas','coord_id=eq.'+COORD.id+'&order=data,hora');var V=rows.map(function(r){return{id:r.id,data:r.data,hora:r.hora,dDisp:r.data_display,cli:r.cli_nome,cliId:r.cli_id,tipo:r.tipo,obs:r.obs||'Visita registrada',pedido:r.pedido||0,canal:r.canal||'Balcão',concorrentes:r.concorrentes||'',concData:r.conc_data||[],motivoPerda:r.motivo_perda||'',share:r.share||0,potencial:r.potencial||0,nps:r.nps||0,lat:r.lat||null,lng:r.lng||null};});
+  var pendQ=lsGet('pendV_'+COORD.id)||[];
+  if(pendQ.length){V=V.concat(pendQ.map(function(p){var r=p.v;return{id:r.id,data:r.data,hora:r.hora,dDisp:r.data_display,cli:r.cli_nome,cliId:r.cli_id,tipo:r.tipo,obs:r.obs||'Visita registrada',pedido:r.pedido||0,canal:r.canal||'Balcão',concorrentes:r.concorrentes||'',concData:r.conc_data||[],motivoPerda:r.motivo_perda||'',share:r.share||0,potencial:r.potencial||0,nps:r.nps||0,lat:r.lat||null,lng:r.lng||null,pend:true};}));}
+  lsSet('V_'+COORD.id,V);return V;}
   catch(e){setSyncStatus('err');return lsGet('V_'+COORD.id)||[];}
 }
 async function carregarAtivacoes(){
@@ -1295,7 +1313,7 @@ async function salvarVisita(){
   var npsVal=parseInt(document.getElementById('fnps')&&document.getElementById('fnps').value)||0;
   setSyncStatus('sync');
   try{
-    await supaUpsert('visitas',{
+    var visObj={
       id:'v'+Date.now(),coord_id:COORD.id,
       cli_id:cSel.value,cli_nome:cSel.options[cSel.selectedIndex].text,
       data,hora:document.getElementById('fhora').value,data_display:dDisp,
@@ -1311,11 +1329,20 @@ async function salvarVisita(){
       nps:npsVal,
       lat:_geoPos?_geoPos.lat:null,lng:_geoPos?_geoPos.lng:null,
       criado_em:new Date().toISOString()
-    });
-    await supaPatch('clientes',cSel.value,{ulv_data:data,ulv_display:dDisp,updated_at:new Date().toISOString()});
+    };
+    await supaUpsert('visitas',visObj);
+    // Atualizar última visita do cliente — NÃO-fatal (visita já está salva)
+    try{await supaPatch('clientes','id=eq.'+cSel.value,{ulv_data:data,ulv_display:dDisp,updated_at:new Date().toISOString()});}catch(ePatch){}
     lsSet('V_'+COORD.id,null);lsSet('C_'+COORD.id,null);
     _geoPos=null;setSyncStatus('ok');toast('Visita salva e sincronizada!');
-  }catch(e){setSyncStatus('err');toast('Erro ao sincronizar. Verifique a conexão.');}
+    sincronizarPendentes().catch(function(){});
+  }catch(e){
+    var qP=lsGet('pendV_'+COORD.id)||[];
+    qP.push({v:visObj,cp:{id:cSel.value,ulv_data:data,ulv_display:dDisp}});
+    lsSet('pendV_'+COORD.id,qP);
+    setSyncStatus('err');
+    toast('Sem conexão — visita GUARDADA no aparelho ('+qP.length+' pendente'+(qP.length>1?'s':'')+'). Será reenviada automaticamente.');
+  }
   if(btn){btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar';}
   fecharSheet();renderDash();
 }
