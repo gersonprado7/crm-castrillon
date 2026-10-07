@@ -1451,6 +1451,13 @@ async function atualizarVisita(vid){
     conc_data:concData,
     motivo_perda:todosM.join(', ')
   };
+  // Cliente (permitir trocar o cliente da visita)
+  var cSelE=document.getElementById('fcli');
+  if(cSelE&&cSelE.value){
+    obj.cli_id=cSelE.value;
+    var optE=cSelE.options[cSelE.selectedIndex];
+    if(optE)obj.cli_nome=optE.text;
+  }
   // Remover chaves undefined para não sobrescrever com null
   Object.keys(obj).forEach(function(k){if(obj[k]===undefined)delete obj[k];});
   try{
@@ -1462,7 +1469,8 @@ async function atualizarVisita(vid){
     if(!r.ok)throw new Error(await r.text());
     var rows=await r.json();
     if(!rows||!rows.length)throw new Error('Nenhum registro atualizado (RLS).');
-    lsSet('V_'+COORD.id,null);
+    if(obj.cli_id&&obj.data){try{await supaPatch('clientes','id=eq.'+obj.cli_id,{ulv_data:obj.data,ulv_display:obj.data_display,updated_at:new Date().toISOString()});}catch(eP){}}
+    lsSet('V_'+COORD.id,null);lsSet('C_'+COORD.id,null);
     setSyncStatus('ok');
     toast('Visita atualizada!');
     fecharSheet();
