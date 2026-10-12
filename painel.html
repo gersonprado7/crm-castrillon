@@ -526,7 +526,7 @@ var MES=new Date().toISOString().slice(0,7);
 var ANO=new Date().getFullYear();
 var _session=null,_isAdmin=false,_permissoes=[],_userEmail=null;
 var _filtroRegiao='';
-var _coordenadores=[],_clientes=[],_visitas=[],_ativacoes=[],_acoes=[],_historico={},_todasVisitas=[];
+var _coordenadores=[],_clientes=[],_visitas=[],_ativacoes=[],_acoes=[],_historico={},_historicoB2B={},_todasVisitas=[];
 var secAtual='dash';
 
 // ── UTILITÁRIOS ────────────────────────────────────────────
@@ -843,11 +843,15 @@ async function carregarHistorico(){
       if(data.length<pageSize)break;
       page++;
     }
-    _historico={};
+    _historico={};_historicoB2B={};
     rows.forEach(function(r){
       var k=r.codigo;
       if(!_historico[k])_historico[k]={};
       _historico[k][r.ano+'_'+r.mes]=r.valor||0;
+      if(r.valor_b2b){
+        if(!_historicoB2B[k])_historicoB2B[k]={};
+        _historicoB2B[k][r.ano+'_'+r.mes]=r.valor_b2b;
+      }
     });
   }catch(e){console.warn('historico_vendas não disponível:',e.message);}
 }
@@ -1101,6 +1105,13 @@ async function renderApuracao(){
     var pctMeta=tot?naMeta/tot*100:0;
     var acelPP=pctMeta>70?0.2:(pctMeta>=50?0.1:0);
     var sv=_apurSalvas[co.id]||{};
+    // B2B automático do histórico (coluna VENDA_B2B dos arquivos importados)
+    var b2bIdx={};
+    Object.keys(_historicoB2B||{}).forEach(function(cod){b2bIdx[normZap(cod)]=_historicoB2B[cod];});
+    var autoB2B=0;
+    ofs.forEach(function(o){var hb=b2bIdx[normZap(o.codigo)]||{};autoB2B+=hb[k]||0;});
+    autoB2B=Math.round(autoB2B*100)/100;
+    if((sv.b2b===undefined||sv.b2b===null)&&autoB2B>0)sv.b2b=autoB2B;
     var cid=co.id.replace(/[^a-z0-9_]/gi,'');
     return '<div class="card" style="margin-bottom:14px" data-apur="'+co.id+'">'
       +'<div class="card-hdr"><div class="card-tit"><i class="ti ti-user-circle" style="color:var(--or)"></i> '+co.nome+'</div>'
@@ -1116,7 +1127,7 @@ async function renderApuracao(){
       +'</div>'
       // Inputs manuais
       +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">'
-      +campoApur('Faturamento B2B do mês (R$)','b2b',sv.b2b,cid,'do total de '+fmtMoney(fatTot))
+      +campoApur('Faturamento B2B do mês (R$)','b2b',sv.b2b,cid,(autoB2B>0?'auto do arquivo (VENDA_B2B) — pode ajustar':'do total de '+fmtMoney(fatTot)))
       +campoApur('Ativações validadas (qtde)','ativ',sv.ativ,cid,'2 meses consecutivos ≥ 10k')
       +campoApur('Máquinas instaladas c/ uso (qtde)','maq',sv.maq,cid,'R$ 20 por máquina')
       +campoApur('Volume nas máquinas (R$)','vol',sv.vol,cid,'0,02% sobre o volume')
@@ -1787,7 +1798,7 @@ async function importarVendas(input){
   var btn=document.getElementById('btn-importar');
   btn.disabled=true;btn.innerHTML='<i class="ti ti-loader" style="animation:pulse 1s infinite"></i> Processando...';
   try{
-    var dados={};
+    var dados={};var dadosB2B={};
     var modoHistorico=false;
     var mesNum=parseInt(MES.slice(5,7));
     var anoNum=parseInt(MES.slice(0,4));
@@ -1911,10 +1922,11 @@ async function importarVendas(input){
       for(var hl=0;hl<Math.min(4,xlsRows.length);hl++){
         var rowL=(xlsRows[hl]||[]).map(function(c){return String(c||'').toLowerCase();});
         var iCod=-1,iMes=-1,iVal=-1;
-        var candVal=[];
+        var candVal=[];var iB2B=-1;
         rowL.forEach(function(h,i){
           if(iCod<0&&(h.indexOf('codigo')>=0||h.indexOf('código')>=0))iCod=i;
           if(iMes<0&&(h.indexOf('mês ano')>=0||h.indexOf('mes ano')>=0||h==='mês'||h==='mes'))iMes=i;
+          if(iB2B<0&&h.indexOf('b2b')>=0){iB2B=i;return;}
           if(h.indexOf('venda')>=0||h.indexOf('valor')>=0||h.indexOf('faturamento')>=0)candVal.push(i);
         });
         // Escolher a coluna de valor cujo conteúdo da 1ª linha de dados é NUMÉRICO
@@ -1926,7 +1938,7 @@ async function importarVendas(input){
           if(!isNaN(v))iVal=ci;
         });
         if(iVal<0&&candVal.length)iVal=candVal[candVal.length-1];
-        if(iCod>=0&&iVal>=0&&iVal!==iCod&&iVal!==iMes){hdrLong={cod:iCod,mes:iMes,val:iVal};hdrLongIdx=hl;break;}
+        if(iCod>=0&&iVal>=0&&iVal!==iCod&&iVal!==iMes){hdrLong={cod:iCod,mes:iMes,val:iVal,b2b:iB2B};hdrLongIdx=hl;break;}
       }
       var isLong=!!hdrLong;
       var isMultiCol=!isLong&&hdr.length>3;
@@ -1949,6 +1961,10 @@ async function importarVendas(input){
           if(!dados[cod])dados[cod]={};
           var k=ano+'_'+mes;
           dados[cod][k]=(dados[cod][k]||0)+val;
+          if(hdrLong.b2b>=0&&String(r[hdrLong.b2b]||'').trim().toUpperCase()==='SIM'){
+            if(!dadosB2B[cod])dadosB2B[cod]={};
+            dadosB2B[cod][k]=(dadosB2B[cod][k]||0)+val;
+          }
         });
       } else if(isMultiCol){
         // Mapear colunas para ano/mes
@@ -2023,7 +2039,7 @@ async function importarVendas(input){
             var val=histCli[k];
             if(val>0){
               histSalvos++;
-              histBulk.push({id:cod+'_'+ano+'_'+mes,codigo:cod,ano:ano,mes:mes,valor:Math.round(val*100)/100,atualizado_em:new Date().toISOString()});
+              var vb2b=(dadosB2B[cod]&&dadosB2B[cod][k])||0;histBulk.push({id:cod+'_'+ano+'_'+mes,codigo:cod,ano:ano,mes:mes,valor:Math.round(val*100)/100,valor_b2b:Math.round(vb2b*100)/100,atualizado_em:new Date().toISOString()});
             }
           });
         }else{naoEncontrados++;_naoEncontradosLista.push({nome:c.nome,codigo:c.codigo});}
@@ -2034,7 +2050,7 @@ async function importarVendas(input){
         if(val!==undefined){
           atualizados++;
           fatBulk.push({id:c.id,fat:Math.round(val*100)/100});
-          histBulk.push({id:cod+'_'+anoNum+'_'+mesNum,codigo:cod,ano:anoNum,mes:mesNum,valor:Math.round(val*100)/100,atualizado_em:new Date().toISOString()});
+          histBulk.push({id:cod+'_'+anoNum+'_'+mesNum,codigo:cod,ano:anoNum,mes:mesNum,valor:Math.round(val*100)/100,valor_b2b:0,atualizado_em:new Date().toISOString()});
         }else{naoEncontrados++;_naoEncontradosLista.push({nome:c.nome,codigo:c.codigo});}
       }
     });
