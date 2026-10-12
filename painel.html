@@ -747,11 +747,21 @@ function fatCli(c){
     // Sem código: só tem valor do mês corrente
     return _filtroMeses.indexOf(kCorrF)>=0?(c.fat||0):0;
   }
-  var cod=String(c.codigo).trim().toUpperCase();
-  var h=(_historico||{})[cod]||{};
+  var h=histDe(c.codigo);
   var t=0;
   _filtroMeses.forEach(function(fm){t+=h[fm]||0;});
   return t;
+}
+var _histNormIdx=null;
+function histDe(codigo){
+  if(!codigo)return {};
+  var k=String(codigo).trim().toUpperCase();
+  if(_historico[k])return _historico[k];
+  if(!_histNormIdx){
+    _histNormIdx={};
+    Object.keys(_historico).forEach(function(c){_histNormIdx[normZap(c)]=_historico[c];});
+  }
+  return _histNormIdx[normZap(k)]||{};
 }
 function cliFiltrados(){
   var C=filtrarCoord(_clientes,'coord_id');
@@ -843,7 +853,7 @@ async function carregarHistorico(){
       if(data.length<pageSize)break;
       page++;
     }
-    _historico={};_historicoB2B={};
+    _historico={};_historicoB2B={};_histNormIdx=null;
     rows.forEach(function(r){
       var k=r.codigo;
       if(!_historico[k])_historico[k]={};
@@ -916,14 +926,20 @@ function renderDash(){
   var comDados=new Set(C.map(function(c){return c.coord_id;}).concat(V.map(function(v){return v.coord_id;})));
 
   // KPIs de venda respeitando filtro de mês (via histórico) e coordenadora
-  var codsC={};C.forEach(function(c){if(c.codigo)codsC[String(c.codigo).trim().toUpperCase()]=true;});
   var agora=new Date();
   var kCorrente=agora.getFullYear()+'_'+(agora.getMonth()+1);
   // Fat de clientes SEM código (não entram no histórico) — contam no mês corrente
   var fatSemCod=C.filter(function(c){return !c.codigo;}).reduce(function(a,c){return a+(c.fat||0);},0);
+  // Lista de históricos dos clientes filtrados (normaliza zeros; dedup por código)
+  var histsC=[];
+  (function(){var v={};C.forEach(function(c){
+    if(!c.codigo)return;
+    var n=normZap(c.codigo);
+    if(v[n])return;v[n]=1;
+    histsC.push(histDe(c.codigo));
+  });})();
   function somaHistMes(k){
-    var t=0;
-    Object.keys(_historico||{}).forEach(function(cod){if(codsC[cod])t+=_historico[cod][k]||0;});
+    var t=0;histsC.forEach(function(h){t+=h[k]||0;});
     return t;
   }
   var fatT=0;
@@ -981,11 +997,7 @@ function renderDash(){
     for(var mG=1;mG<=mMax;mG++)mesesG.push({ano:aG,mes:mG,k:aG+'_'+mG});
   }
   var vals=mesesG.map(function(m){
-    var t=0;
-    Object.keys(_historico||{}).forEach(function(cod){
-      if(!codsC[cod])return;
-      t+=_historico[cod][m.k]||0;
-    });
+    var t=0;histsC.forEach(function(h){t+=h[m.k]||0;});
     return t;
   });
   // Projeção do mês corrente no gráfico (usando os dias úteis definidos)
@@ -1091,7 +1103,11 @@ async function renderApuracao(){
   if(!coords.length){wrap.innerHTML='<div class="empty" style="padding:24px 0"><i class="ti ti-users"></i><p>Nenhuma coordenadora com carteira fixa</p></div>';return;}
 
   wrap.innerHTML=coords.map(function(co){
-    var ofs=_clientes.filter(function(c){return c.coord_id===co.id&&c.carteira_fixa;});
+    var ofs=(function(){var v={},out=[];_clientes.forEach(function(c){
+      if(c.coord_id!==co.id||!c.carteira_fixa)return;
+      var n=c.codigo?normZap(c.codigo):('__id_'+c.id);
+      if(v[n])return;v[n]=1;out.push(c);
+    });return out;})();
     var tot=ofs.length,fatTot=0,naMeta=0,ativas=0;
     ofs.forEach(function(o){
       var h=histIdx[normZap(o.codigo)]||{};
@@ -1152,7 +1168,11 @@ function recalcApuracaoByCid(cid){
 function recalcApuracao(coordId){
   var ctx=window._apurCtx;if(!ctx)return;
   var cid=coordId.replace(/[^a-z0-9_]/gi,'');
-  var ofs=_clientes.filter(function(c){return c.coord_id===coordId&&c.carteira_fixa;});
+  var ofs=(function(){var v={},out=[];_clientes.forEach(function(c){
+    if(c.coord_id!==coordId||!c.carteira_fixa)return;
+    var n=c.codigo?normZap(c.codigo):('__id_'+c.id);
+    if(v[n])return;v[n]=1;out.push(c);
+  });return out;})();
   var tot=ofs.length,fatTot=0,naMeta=0;
   ofs.forEach(function(o){
     var h=ctx.histIdx[normZap(o.codigo)]||{};
@@ -1530,7 +1550,7 @@ function abrirModalCliente(cliId, _visita){
     +'</div>';
 
   // Histórico de vendas
-  var hist=_historico[c.codigo]||{};
+  var hist=histDe(c.codigo);
   var anos=[2025,2026];
   var temHist=Object.keys(hist).length>0;
 
@@ -2421,7 +2441,7 @@ function exportarExcel(){
       var cabV=['Código','Cliente','Coordenador'].concat(mesesOrd.map(function(m){return MN3[m.mes-1]+'/'+String(m.ano).slice(2);})).concat(['TOTAL']);
       var linhasV=_clientes.filter(function(c){return c.codigo;}).map(function(c){
         var codN=String(c.codigo).trim().toUpperCase();
-        var h=_historico[codN]||_historico[c.codigo]||{};
+        var h=histDe(c.codigo);
         var tot=0;
         var vals=mesesOrd.map(function(m){var v=h[m.k]||0;tot+=v;return v?Math.round(v*100)/100:'';});
         return [c.codigo,c.nome,coordMap[c.coord_id]||''].concat(vals).concat([Math.round(tot*100)/100]);
