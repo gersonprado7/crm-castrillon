@@ -543,7 +543,7 @@ var SUPA_KEY='sb_publishable_vWhAU4pkft-kXH-T3awtqw_R3UTnV9I';
 var MESES=["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 var MES=new Date().toISOString().slice(0,7);
 var ANO=new Date().getFullYear();
-var _session=null,_isAdmin=false,_permissoes=[],_userEmail=null;
+var _session=null,_isAdmin=false,_isRH=false,_permissoes=[],_userEmail=null;
 var _filtroRegiao='';
 var _coordenadores=[],_clientes=[],_visitas=[],_ativacoes=[],_acoes=[],_historico={},_historicoB2B={},_todasVisitas=[];
 var secAtual='dash';
@@ -613,7 +613,7 @@ async function fazerLogin(){
 function fazerLogout(){
   if(_session&&_session.user&&_session.user.email){localStorage.removeItem('crm_perfil_'+_session.user.email);}
   localStorage.removeItem('supa_session');localStorage.removeItem('crm_perfil');
-  _session=null;_isAdmin=false;_permissoes=[];_userEmail=null;
+  _session=null;_isAdmin=false;_isRH=false;_permissoes=[];_userEmail=null;
   document.getElementById('l-email').value='';document.getElementById('l-senha').value='';
   document.getElementById('login-wrap').classList.add('on');
 }
@@ -633,6 +633,10 @@ async function aposLogin(){
     if(perfil.papel==='admin'){
       _isAdmin=true;
       document.getElementById('nav-admin').style.display='';var navAp=document.getElementById('nav-apuracao');if(navAp)navAp.style.display='';var navRv=document.getElementById('nav-relvendas');if(navRv)navRv.style.display='';
+    } else if(perfil.papel==='rh'){
+      // RH — vê e salva a apuração de TODAS as coordenadoras; sem importação/backup/admin
+      _isAdmin=false;_isRH=true;
+      aplicarModoRH(perfil.nome||_userEmail);
     } else if(perfil.papel==='viewer'){
       // Coordenadora — modo somente leitura, ver só os próprios dados
       _isAdmin=false;
@@ -684,6 +688,21 @@ function aplicarModoViewer(nomeUsuario){
     if(n.textContent.trim().indexOf('Ativações')>=0) n.style.display='none';
   });
 }
+function aplicarModoRH(nomeUsuario){
+  // Esconder controles de admin, manter Apuração e Relatório de vendas
+  var esconder=['btn-importar','backup-menu','nav-admin','nav-import-cart','nav-importar'];
+  esconder.forEach(function(id){var el=document.getElementById(id);if(el)el.style.display='none';});
+  var navAp=document.getElementById('nav-apuracao');if(navAp)navAp.style.display='';
+  var navRv=document.getElementById('nav-relvendas');if(navRv)navRv.style.display='';
+  var hdrRight=document.querySelector('.hdr-right');
+  if(hdrRight){
+    var badge=document.createElement('span');
+    badge.style.cssText='font-size:12px;color:#fff;background:#7C3AED;padding:5px 12px;border-radius:99px;font-weight:700';
+    badge.innerHTML='<i class="ti ti-user-shield" style="font-size:13px;margin-right:4px"></i>'+nomeUsuario+' · RH';
+    hdrRight.insertBefore(badge,hdrRight.firstChild);
+  }
+}
+
 
 // ── FILTRO REGIÃO ──────────────────────────────────────────
 function popularFiltroRegiao(){
@@ -1151,7 +1170,7 @@ function apurBase(coordId,ctx){
 async function renderApuracao(){
   var wrap=document.getElementById('apuracao-wrap');
   if(!wrap)return;
-  if(!_isAdmin){wrap.innerHTML='<div class="empty" style="padding:24px 0"><i class="ti ti-lock"></i><p>Acesso restrito ao administrador</p></div>';return;}
+  if(!_isAdmin&&!_isRH){wrap.innerHTML='<div class="empty" style="padding:24px 0"><i class="ti ti-lock"></i><p>Acesso restrito</p></div>';return;}
   popularMesesApur();
   var sel=document.getElementById('apur-mes');
   var p=sel.value.split('_');var ano=parseInt(p[0]),mes=parseInt(p[1]);
@@ -1293,7 +1312,7 @@ function popularMesesRelv(){
 async function renderRelVendas(){
   var wrap=document.getElementById('relv-wrap');
   if(!wrap)return;
-  if(!_isAdmin){wrap.innerHTML='<div class="empty" style="padding:24px 0"><i class="ti ti-lock"></i><p>Acesso restrito ao administrador</p></div>';return;}
+  if(!_isAdmin&&!_isRH){wrap.innerHTML='<div class="empty" style="padding:24px 0"><i class="ti ti-lock"></i><p>Acesso restrito</p></div>';return;}
   popularMesesRelv();
   var sel=document.getElementById('relv-mes');
   var p=sel.value.split('_');var ano=parseInt(p[0]),mes=parseInt(p[1]);
