@@ -301,6 +301,7 @@ tr[onclick]:hover td{background:#F7FAFF;cursor:pointer}
       <button class="nav-item" onclick="irSec('intel',this)"><i class="ti ti-radar"></i> Inteligência</button>
       <button class="nav-item" onclick="irSec('ativacoes',this)"><i class="ti ti-user-plus"></i> Ativações</button>
       <button class="nav-item" id="nav-apuracao" style="display:none" onclick="irSec('apuracao',this)"><i class="ti ti-calculator"></i> Apuração variáveis</button>
+      <button class="nav-item" id="nav-relvendas" style="display:none" onclick="irSec('relvendas',this)"><i class="ti ti-report-analytics"></i> Relatório de vendas</button>
     </div>
     <div class="nav-sec">
       <div class="nav-sec-lbl">Configurações</div>
@@ -436,6 +437,24 @@ tr[onclick]:hover td{background:#F7FAFF;cursor:pointer}
         </div>
       </div>
       <div id="apuracao-wrap"></div>
+    </div>
+
+    <!-- RELATÓRIO DE VENDAS (memória de cálculo v3) -->
+    <div class="sec" id="sec-relvendas">
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-hdr">
+          <div class="card-tit"><i class="ti ti-report-analytics"></i> Relatório de vendas — memória de cálculo da variável</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:12px;font-weight:600;color:var(--mu)">Mês:</span>
+            <select id="relv-mes" onchange="renderRelVendas()" style="box-shadow:var(--shadow)"></select>
+          </div>
+        </div>
+        <div class="card-body" style="font-size:12px;color:var(--mu);line-height:1.6">
+          Cliente a cliente da carteira fixa: média Jan–Mai/26, venda do mês por canal, base de comissão (incremento) e meta.
+          Os prêmios usam os campos salvos na aba <strong>Apuração variáveis</strong> (B2B ajustado, ativações, máquinas).
+        </div>
+      </div>
+      <div id="relv-wrap"></div>
     </div>
 
     <!-- COORDENADORES -->
@@ -613,7 +632,7 @@ async function aposLogin(){
     var perfil=rows[0];
     if(perfil.papel==='admin'){
       _isAdmin=true;
-      document.getElementById('nav-admin').style.display='';var navAp=document.getElementById('nav-apuracao');if(navAp)navAp.style.display='';
+      document.getElementById('nav-admin').style.display='';var navAp=document.getElementById('nav-apuracao');if(navAp)navAp.style.display='';var navRv=document.getElementById('nav-relvendas');if(navRv)navRv.style.display='';
     } else if(perfil.papel==='viewer'){
       // Coordenadora — modo somente leitura, ver só os próprios dados
       _isAdmin=false;
@@ -638,7 +657,7 @@ async function aposLogin(){
     // (pode ser erro de RLS ou rede temporário)
     if(_userEmail==='gerson.prado@castrillon.com.br'){
       _isAdmin=true;
-      document.getElementById('nav-admin').style.display='';var navAp=document.getElementById('nav-apuracao');if(navAp)navAp.style.display='';
+      document.getElementById('nav-admin').style.display='';var navAp=document.getElementById('nav-apuracao');if(navAp)navAp.style.display='';var navRv=document.getElementById('nav-relvendas');if(navRv)navRv.style.display='';
     }
   }
   loadAll();
@@ -646,7 +665,7 @@ async function aposLogin(){
 
 function aplicarModoViewer(nomeUsuario){
   // Ocultar controles restritos
-  var esconder=['btn-importar','backup-menu','nav-admin','nav-apuracao','nav-import-cart'];
+  var esconder=['btn-importar','backup-menu','nav-admin','nav-apuracao','nav-relvendas','nav-import-cart'];
   esconder.forEach(function(id){var el=document.getElementById(id);if(el)el.style.display='none';});
   // Mostrar badge do usuário no header
   var hdrRight=document.querySelector('.hdr-right');
@@ -886,6 +905,7 @@ function renderSec(id){
   else if(id==='admin')renderAdmin();
   else if(id==='resumo')renderResumo();
   else if(id==='apuracao')renderApuracao();
+  else if(id==='relvendas')renderRelVendas();
 }
 
 // ── DASHBOARD ──────────────────────────────────────────────
@@ -1077,6 +1097,29 @@ function popularMesesApur(){
 // e BASE COMISSIONÁVEL = incremento sobre a média Jan–Mai/2026 de cada cliente
 // (negativo zera; cliente sem histórico Jan–Mai comissiona 100%)
 var APUR_BASELINE_KEYS=['2026_1','2026_2','2026_3','2026_4','2026_5'];
+function calcComissao(d,b2bIn,ativ,maq,vol){
+  var b2b=Math.min(b2bIn||0,d.fatTot);
+  var incB2B;
+  if(d.autoB2B>0&&Math.abs(b2b-d.autoB2B)<0.01){
+    incB2B=Math.min(d.incB2BAuto,d.baseInc);
+  }else{
+    incB2B=d.fatTot>0?d.baseInc*(b2b/d.fatTot):0;
+  }
+  var incBalcao=Math.max(0,d.baseInc-incB2B);
+  var rB=(0.8+d.acelPP)/100,rB2=(1.0+d.acelPP)/100;
+  var comB=incBalcao*rB,comB2=incB2B*rB2;
+  var part=d.fatTot>0?b2b/d.fatTot*100:0;
+  var premio=premioB2BFaixa(part);
+  var bAtiv=(ativ||0)*200,bMaq=(maq||0)*20,bVol=(vol||0)*0.0002;
+  return {b2b:b2b,incB2B:incB2B,incBalcao:incBalcao,rB:rB,rB2:rB2,comB:comB,comB2:comB2,part:part,premio:premio,bAtiv:bAtiv,bMaq:bMaq,bVol:bVol,total:comB+comB2+premio+bAtiv+bMaq+bVol};
+}
+function apurCtxFor(ano,mes){
+  var histIdx={},b2bIdx={};
+  Object.keys(_historico||{}).forEach(function(cod){histIdx[normZap(cod)]=_historico[cod];});
+  Object.keys(_historicoB2B||{}).forEach(function(cod){b2bIdx[normZap(cod)]=_historicoB2B[cod];});
+  function kMes(a,m){while(m<1){m+=12;a--;}return a+'_'+m;}
+  return {ano:ano,mes:mes,k:ano+'_'+mes,k1:kMes(ano,mes-1),k2:kMes(ano,mes-2),k3:kMes(ano,mes-3),histIdx:histIdx,b2bIdx:b2bIdx};
+}
 function apurBase(coordId,ctx){
   var ofs=(function(){var v={},out=[];_clientes.forEach(function(c){
     if(c.coord_id!==coordId||!c.carteira_fixa)return;
@@ -1120,12 +1163,7 @@ async function renderApuracao(){
     rows.forEach(function(r){_apurSalvas[r.coord_id]=r.dados||{};});
   }catch(e){/* tabela pode não existir ainda */}
 
-  var histIdx={},b2bIdx={};
-  Object.keys(_historico||{}).forEach(function(cod){histIdx[normZap(cod)]=_historico[cod];});
-  Object.keys(_historicoB2B||{}).forEach(function(cod){b2bIdx[normZap(cod)]=_historicoB2B[cod];});
-
-  function kMes(a,m){while(m<1){m+=12;a--;}return a+'_'+m;}
-  var ctx={ano:ano,mes:mes,k:k,k1:kMes(ano,mes-1),k2:kMes(ano,mes-2),k3:kMes(ano,mes-3),histIdx:histIdx,b2bIdx:b2bIdx};
+  var ctx=apurCtxFor(ano,mes);
   window._apurCtx=ctx;
 
   var coords=_coordenadores.filter(function(co){
@@ -1179,24 +1217,9 @@ function recalcApuracao(coordId){
   var d=apurBase(coordId,ctx);
   _apurRows[coordId]=d.rows;
   function gN(c){var el=document.getElementById('apur-'+c+'-'+cid);return el?(parseFloat(String(el.value).replace(/\./g,'').replace(',','.'))||0):0;}
-  var b2b=Math.min(gN('b2b'),d.fatTot);
+  var cc=calcComissao(d,gN('b2b'),gN('ativ'),gN('maq'),gN('vol'));
+  var b2b=cc.b2b,incB2B=cc.incB2B,incBalcao=cc.incBalcao,comB=cc.comB,comB2=cc.comB2,part=cc.part,premio=cc.premio,bAtiv=cc.bAtiv,bMaq=cc.bMaq,bVol=cc.bVol,total=cc.total;
   var ativ=gN('ativ'),maq=gN('maq'),vol=gN('vol');
-  // Divisão do INCREMENTO entre canais:
-  //  - B2B digitado = automático → proporção cliente a cliente (mix do mês de cada um)
-  //  - B2B ajustado manualmente → proporção global b2b/fatTot aplicada ao incremento
-  var incB2B;
-  if(d.autoB2B>0&&Math.abs(b2b-d.autoB2B)<0.01){
-    incB2B=Math.min(d.incB2BAuto,d.baseInc);
-  }else{
-    incB2B=d.fatTot>0?d.baseInc*(b2b/d.fatTot):0;
-  }
-  var incBalcao=Math.max(0,d.baseInc-incB2B);
-  var rB=(0.8+d.acelPP)/100,rB2=(1.0+d.acelPP)/100;
-  var comB=incBalcao*rB,comB2=incB2B*rB2;
-  var part=d.fatTot>0?b2b/d.fatTot*100:0;
-  var premio=premioB2BFaixa(part);
-  var bAtiv=ativ*200,bMaq=maq*20,bVol=vol*0.0002;
-  var total=comB+comB2+premio+bAtiv+bMaq+bVol;
   var el=document.getElementById('apur-calc-'+cid);
   if(!el)return;
   function linha(c1,c2,c3,forte){
@@ -1218,10 +1241,11 @@ function exportarDetalheApur(coordId){
   var rows=_apurRows[coordId]||[];
   var ctx=window._apurCtx||{};
   var co=_coordenadores.find(function(c){return c.id===coordId;});
-  var csv='Codigo;Cliente;Media Jan-Mai/26;Meta do mes;Faturamento do mes;Incremento comissionavel;B2B do mes\n'
+  var csv='Codigo;Cliente;Media Jan-Mai/26;Meta do mes;Venda loja;Venda B2B;Venda total;Base comissao (incremento);Atingiu meta\n'
     +rows.map(function(r){
       function n2(v){return String(Math.round(v*100)/100).replace('.',',');}
-      return '"'+r.codigo+'";"'+String(r.nome).replace(/"/g,'')+'";'+n2(r.base5)+';'+n2(r.meta)+';'+n2(r.f)+';'+n2(r.incr)+';'+n2(r.fb);
+      var loja=Math.max(0,r.f-r.fb);
+      return '"'+r.codigo+'";"'+String(r.nome).replace(/"/g,'')+'";'+n2(r.base5)+';'+n2(r.meta)+';'+n2(loja)+';'+n2(r.fb)+';'+n2(r.f)+';'+n2(r.incr)+';'+(r.f>=r.meta?'SIM':'NAO');
     }).join('\n');
   var a=document.createElement('a');
   a.href='data:text/csv;charset=utf-8,﻿'+encodeURIComponent(csv);
@@ -1248,6 +1272,113 @@ async function salvarApuracao(coordId){
     alert('Erro ao salvar apuração: '+e.message.slice(0,120)+'\n\nConfirme se a tabela "apuracoes" foi criada no Supabase.');
   }
   setTimeout(function(){if(btn){btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy"></i> Salvar apuração';}},1800);
+}
+
+
+// ── RELATÓRIO DE VENDAS (memória de cálculo) ───────────────
+function popularMesesRelv(){
+  var sel=document.getElementById('relv-mes');
+  if(!sel||sel.options.length)return;
+  var MN=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  var agora=new Date();
+  for(var i=0;i<12;i++){
+    var d=new Date(agora.getFullYear(),agora.getMonth()-i,1);
+    var o=document.createElement('option');
+    o.value=d.getFullYear()+'_'+(d.getMonth()+1);
+    o.textContent=MN[d.getMonth()]+'/'+d.getFullYear()+(i===0?' (parcial)':'');
+    sel.appendChild(o);
+  }
+  sel.selectedIndex=1;
+}
+async function renderRelVendas(){
+  var wrap=document.getElementById('relv-wrap');
+  if(!wrap)return;
+  if(!_isAdmin){wrap.innerHTML='<div class="empty" style="padding:24px 0"><i class="ti ti-lock"></i><p>Acesso restrito ao administrador</p></div>';return;}
+  popularMesesRelv();
+  var sel=document.getElementById('relv-mes');
+  var p=sel.value.split('_');var ano=parseInt(p[0]),mes=parseInt(p[1]);
+  var salvas={};
+  try{
+    var rows=await supaGet('apuracoes','ano=eq.'+ano+'&mes=eq.'+mes);
+    rows.forEach(function(r){salvas[r.coord_id]=r.dados||{};});
+  }catch(e){}
+  var ctx=apurCtxFor(ano,mes);
+  window._apurCtx=window._apurCtx||ctx;
+  var coords=_coordenadores.filter(function(co){
+    return _clientes.some(function(c){return c.coord_id===co.id&&c.carteira_fixa;});
+  });
+  if(!coords.length){wrap.innerHTML='<div class="empty" style="padding:24px 0"><i class="ti ti-users"></i><p>Nenhuma coordenadora com carteira fixa</p></div>';return;}
+
+  wrap.innerHTML=coords.map(function(co){
+    var d=apurBase(co.id,ctx);
+    _apurRows[co.id]=d.rows;
+    var sv=salvas[co.id]||{};
+    var b2bUsado=(sv.b2b!==undefined&&sv.b2b!==null)?sv.b2b:d.autoB2B;
+    var cc=calcComissao(d,b2bUsado,sv.ativ||0,sv.maq||0,sv.vol||0);
+
+    // Linhas por cliente (ordenadas por base de comissão desc, depois venda)
+    var linhas=d.rows.slice().sort(function(a,b){return (b.incr-a.incr)||(b.f-a.f);});
+    var somaLoja=0,somaB2B=0;
+    var trs=linhas.map(function(rw){
+      var loja=Math.max(0,rw.f-rw.fb);somaLoja+=loja;somaB2B+=rw.fb;
+      var atingiu=rw.f>=rw.meta;
+      return '<tr>'
+        +'<td style="padding:5px 8px;border-bottom:1px solid var(--bd);color:var(--mu);font-size:11px;font-family:monospace">'+(rw.codigo||'—')+'</td>'
+        +'<td style="padding:5px 8px;border-bottom:1px solid var(--bd);font-weight:600">'+String(rw.nome).replace(/</g,'&lt;')+'</td>'
+        +'<td style="padding:5px 8px;border-bottom:1px solid var(--bd);text-align:right;color:var(--mu)">'+fmtMoney(rw.base5)+'</td>'
+        +'<td style="padding:5px 8px;border-bottom:1px solid var(--bd);text-align:right">'+fmtMoney(loja)+'</td>'
+        +'<td style="padding:5px 8px;border-bottom:1px solid var(--bd);text-align:right;color:#1D4ED8">'+(rw.fb?fmtMoney(rw.fb):'—')+'</td>'
+        +'<td style="padding:5px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:700">'+fmtMoney(rw.f)+'</td>'
+        +'<td style="padding:5px 8px;border-bottom:1px solid var(--bd);text-align:right;font-weight:700;color:'+(rw.incr>0?'#C2410C':'var(--mu)')+'">'+(rw.incr>0?fmtMoney(rw.incr):'—')+'</td>'
+        +'<td style="padding:5px 8px;border-bottom:1px solid var(--bd);text-align:center">'+(atingiu?'<span style="color:#059669;font-weight:800">✓</span>':'<span style="color:var(--mu)">—</span>')+'</td>'
+        +'</tr>';
+    }).join('');
+
+    var cid=co.id.replace(/[^a-z0-9_]/gi,'');
+    function chip(lbl,val,destaque){
+      return '<div style="background:'+(destaque?'#FFF7ED;border:1px solid #FED7AA':'var(--bg)')+';border-radius:var(--rs);padding:8px 12px;min-width:120px">'
+        +'<div style="font-size:10px;color:'+(destaque?'#C2410C':'var(--mu)')+';font-weight:700;text-transform:uppercase">'+lbl+'</div>'
+        +'<div style="font-size:14px;font-weight:800;'+(destaque?'color:#C2410C':'')+'">'+val+'</div></div>';
+    }
+    return '<div class="card" style="margin-bottom:14px">'
+      +'<div class="card-hdr"><div class="card-tit"><i class="ti ti-user-circle" style="color:var(--or)"></i> '+co.nome
+      +' <span style="font-size:12px;color:var(--mu);font-weight:400">· '+d.tot+' oficinas na carteira fixa · '+d.naMeta+' na meta ('+Math.round(d.pctMeta)+'%) · acelerador +'+String(d.acelPP).replace('.',',')+' p.p.</span></div>'
+      +'<button onclick="exportarDetalheApur(\''+co.id+'\')" style="background:var(--card);color:var(--dark);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer"><i class="ti ti-download"></i> Exportar CSV</button></div>'
+      +'<div class="card-body">'
+      // Resumo dos prêmios/componentes
+      +'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">'
+      +chip('Comissão balcão '+String(0.8+d.acelPP).replace('.',',')+'%',fmtMoney(cc.comB))
+      +chip('Comissão B2B '+String(1.0+d.acelPP).replace('.',',')+'%',fmtMoney(cc.comB2))
+      +chip('Prêmio B2B ('+(Math.round(cc.part*10)/10).toLocaleString('pt-BR')+'%)',fmtMoney(cc.premio))
+      +chip('Ativações ('+(sv.ativ||0)+')',fmtMoney(cc.bAtiv))
+      +chip('Máquinas ('+(sv.maq||0)+')',fmtMoney(cc.bMaq+cc.bVol))
+      +chip('TOTAL VARIÁVEL',fmtMoney(cc.total),true)
+      +'</div>'
+      // Tabela por cliente
+      +'<div style="max-height:430px;overflow:auto;border:1px solid var(--bd);border-radius:var(--rs)">'
+      +'<table style="width:100%;border-collapse:collapse;font-size:12px">'
+      +'<thead><tr style="background:var(--bg);position:sticky;top:0">'
+      +'<th style="text-align:left;padding:6px 8px">Código</th>'
+      +'<th style="text-align:left;padding:6px 8px">Cliente</th>'
+      +'<th style="text-align:right;padding:6px 8px">Média Jan–Mai/26</th>'
+      +'<th style="text-align:right;padding:6px 8px">Venda loja</th>'
+      +'<th style="text-align:right;padding:6px 8px">Venda B2B</th>'
+      +'<th style="text-align:right;padding:6px 8px">Venda total</th>'
+      +'<th style="text-align:right;padding:6px 8px">Base comissão</th>'
+      +'<th style="text-align:center;padding:6px 8px">Meta</th>'
+      +'</tr></thead><tbody>'+trs+'</tbody>'
+      +'<tfoot><tr style="background:#FFF7ED;font-weight:800">'
+      +'<td style="padding:6px 8px" colspan="2">TOTAL ('+d.tot+' oficinas)</td>'
+      +'<td style="padding:6px 8px;text-align:right">'+fmtMoney(d.rows.reduce(function(a,r2){return a+r2.base5;},0))+'</td>'
+      +'<td style="padding:6px 8px;text-align:right">'+fmtMoney(somaLoja)+'</td>'
+      +'<td style="padding:6px 8px;text-align:right">'+fmtMoney(somaB2B)+'</td>'
+      +'<td style="padding:6px 8px;text-align:right">'+fmtMoney(d.fatTot)+'</td>'
+      +'<td style="padding:6px 8px;text-align:right;color:#C2410C">'+fmtMoney(d.baseInc)+'</td>'
+      +'<td style="padding:6px 8px;text-align:center">'+d.naMeta+'/'+d.tot+'</td>'
+      +'</tr></tfoot></table></div>'
+      +((sv.ativ===undefined&&sv.b2b===undefined)?'<div style="font-size:11px;color:var(--mu);margin-top:8px"><i class="ti ti-info-circle"></i> Nenhuma apuração salva para este mês — prêmios calculados com B2B automático e ativações/máquinas zeradas. Preencha na aba Apuração variáveis.</div>':'')
+      +'</div></div>';
+  }).join('');
 }
 
 // ── RESUMO DE VISITAS ──────────────────────────────────────
