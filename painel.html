@@ -353,7 +353,7 @@ tr[onclick]:hover td{background:#F7FAFF;cursor:pointer}
       <span style="font-size:12px;font-weight:600;color:var(--mu);margin-left:8px">Carteira:</span>
       <select id="filtro-cart-sel" onchange="aplicarFiltros()" style="box-shadow:var(--shadow)">
         <option value="">Todos os clientes</option>
-        <option value="fixa">Só carteira fixa</option>
+        <option value="fixa" selected>Só carteira fixa</option>
         <option value="fora">Fora da carteira fixa</option>
       </select>
       <span style="font-size:12px;font-weight:600;color:var(--mu);margin-left:8px">Mês:</span>
@@ -668,9 +668,11 @@ async function aposLogin(){
 }
 
 function aplicarModoViewer(nomeUsuario){
-  // Ocultar controles restritos
-  var esconder=['btn-importar','backup-menu','nav-admin','nav-apuracao','nav-relvendas','nav-import-cart'];
+  // Ocultar controles restritos (Apuração e Relatório ficam VISÍVEIS — só leitura, só a própria carteira)
+  var esconder=['btn-importar','backup-menu','nav-admin','nav-import-cart','nav-importar'];
   esconder.forEach(function(id){var el=document.getElementById(id);if(el)el.style.display='none';});
+  var navAp=document.getElementById('nav-apuracao');if(navAp)navAp.style.display='';
+  var navRv=document.getElementById('nav-relvendas');if(navRv)navRv.style.display='';
   // Mostrar badge do usuário no header
   var hdrRight=document.querySelector('.hdr-right');
   if(hdrRight){
@@ -715,7 +717,7 @@ function popularFiltroRegiao(){
   regioes.forEach(function(r){var o=document.createElement('option');o.value=r;o.textContent=r;if(r===atual)o.selected=true;sel.appendChild(o);});
 }
 
-var _filtroCoord='';var _filtroMeses=[];var _filtroCart='';
+var _filtroCoord='';var _filtroMeses=[];var _filtroCart='fixa';
 function aplicarFiltros(){
   var sc=document.getElementById('filtro-coord-sel');
   _filtroCoord=sc?sc.value:'';
@@ -979,19 +981,20 @@ function diasUteisMes(ano,mes,ateDia){
 function chaveProj(){var d=new Date();return 'projDias_'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 function carregarDiasProj(){
   var d=new Date();
+  var hojeK=d.toISOString().slice(0,10);
+  var auto={t:diasUteisMes(d.getFullYear(),d.getMonth()+1),c:diasUteisMes(d.getFullYear(),d.getMonth()+1,d.getDate())};
   var salvo=null;
   try{salvo=JSON.parse(localStorage.getItem(chaveProj())||'null');}catch(e){}
-  if(!salvo){
-    salvo={t:diasUteisMes(d.getFullYear(),d.getMonth()+1),c:diasUteisMes(d.getFullYear(),d.getMonth()+1,d.getDate())};
-  }
-  return salvo;
+  // Carimbo automático pelo dia em uso: ajuste manual vale só no próprio dia
+  if(salvo&&salvo.dia===hojeK&&salvo.c>0&&salvo.t>0)return salvo;
+  return auto;
 }
 function numBR(s){return parseFloat(String(s||'').replace(',','.'))||0;}
 function fmtBR(n){return String(n).replace('.',',');}
 function salvarDiasProj(){
   var t=numBR(document.getElementById('proj-totais').value);
   var c=numBR(document.getElementById('proj-corridos').value);
-  try{localStorage.setItem(chaveProj(),JSON.stringify({t:t,c:c}));}catch(e){}
+  try{localStorage.setItem(chaveProj(),JSON.stringify({t:t,c:c,dia:new Date().toISOString().slice(0,10)}));}catch(e){}
   renderDash();
 }
 
@@ -1149,7 +1152,7 @@ function popularMesesApur(){
     o.textContent=MN[d.getMonth()]+'/'+d.getFullYear()+(i===0?' (parcial)':'');
     sel.appendChild(o);
   }
-  sel.selectedIndex=1; // mês fechado anterior
+  sel.selectedIndex=(_isAdmin||_isRH)?1:0; // admin/RH: mês fechado; coordenadora: mês corrente
 }
 // Base por coordenadora: carteira fixa (dedup por código), faturamento, metas,
 // e BASE COMISSIONÁVEL = incremento sobre a média Jan–Mai/2026 de cada cliente
@@ -1202,10 +1205,33 @@ function apurBase(coordId,ctx){
   d.autoB2B=Math.round(d.autoB2B*100)/100;
   return d;
 }
+// Fator de projeção: só quando o mês apurado é o mês corrente (dias carimbados automaticamente)
+function fatorProj(ctx){
+  var h=new Date();
+  if(!ctx||ctx.ano!==h.getFullYear()||ctx.mes!==h.getMonth()+1)return null;
+  var dp=carregarDiasProj();
+  if(!dp||!(dp.c>0)||!(dp.t>0)||dp.t<=dp.c)return null;
+  return {f:dp.t/dp.c,c:dp.c,t:dp.t};
+}
+// Recalcula a base de apuração com as vendas projetadas (ritmo atual até o fim do mês)
+function apurBaseProj(d,fator){
+  var p={tot:d.tot,fatTot:0,naMeta:0,ativas:0,baseInc:0,incB2BAuto:0,autoB2B:0,rows:[]};
+  d.rows.forEach(function(r){
+    var f=r.f*fator,fb=r.fb*fator;
+    var incr=Math.max(0,f-r.base5);
+    p.fatTot+=f;p.autoB2B+=fb;p.baseInc+=incr;
+    if(f>0){p.ativas++;p.incB2BAuto+=incr*(fb/f);}
+    if(f>=r.meta)p.naMeta++;
+    p.rows.push({codigo:r.codigo,nome:r.nome,base5:r.base5,f:f,incr:incr,fb:fb,meta:r.meta});
+  });
+  p.pctMeta=p.tot?p.naMeta/p.tot*100:0;
+  p.acelPP=p.pctMeta>70?0.2:(p.pctMeta>=50?0.1:0);
+  p.autoB2B=Math.round(p.autoB2B*100)/100;
+  return p;
+}
 async function renderApuracao(){
   var wrap=document.getElementById('apuracao-wrap');
   if(!wrap)return;
-  if(!_isAdmin&&!_isRH){wrap.innerHTML='<div class="empty" style="padding:24px 0"><i class="ti ti-lock"></i><p>Acesso restrito</p></div>';return;}
   popularMesesApur();
   var sel=document.getElementById('apur-mes');
   var p=sel.value.split('_');var ano=parseInt(p[0]),mes=parseInt(p[1]);
@@ -1234,7 +1260,7 @@ async function renderApuracao(){
       +'<div class="card-hdr"><div class="card-tit"><i class="ti ti-user-circle" style="color:var(--or)"></i> '+co.nome+'</div>'
       +'<div style="display:flex;gap:8px">'
       +'<button onclick="exportarDetalheApur(\''+co.id+'\')" style="background:var(--card);color:var(--dark);border:1px solid var(--bd);border-radius:var(--rs);padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer"><i class="ti ti-download"></i> Detalhe por cliente (CSV)</button>'
-      +'<button onclick="salvarApuracao(\''+co.id+'\')" id="apur-save-'+cid+'" style="background:var(--or);color:#fff;border:none;border-radius:var(--rs);padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer"><i class="ti ti-device-floppy"></i> Salvar apuração</button></div></div>'
+      +((_isAdmin||_isRH)?'<button onclick="salvarApuracao(\''+co.id+'\')" id="apur-save-'+cid+'" style="background:var(--or);color:#fff;border:none;border-radius:var(--rs);padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer"><i class="ti ti-device-floppy"></i> Salvar apuração</button>':'')+'</div></div>'
       +'<div class="card-body">'
       +'<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px">'
       +'<div style="background:var(--bg);border-radius:var(--rs);padding:10px"><div style="font-size:11px;color:var(--mu)">Carteira fixa</div><div style="font-size:18px;font-weight:800">'+d.tot+'</div><div style="font-size:11px;color:var(--mu)">'+d.ativas+' ativas no mês</div></div>'
@@ -1242,7 +1268,7 @@ async function renderApuracao(){
       +'<div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:var(--rs);padding:10px"><div style="font-size:11px;color:#C2410C;font-weight:700">Base comissionável</div><div style="font-size:15px;font-weight:800;color:#C2410C">'+fmtMoney(d.baseInc)+'</div><div style="font-size:11px;color:var(--mu)">incremento sobre média Jan–Mai/26</div></div>'
       +'<div style="background:var(--bg);border-radius:var(--rs);padding:10px"><div style="font-size:11px;color:var(--mu)">Oficinas na meta</div><div style="font-size:18px;font-weight:800">'+d.naMeta+' <span style="font-size:12px;color:var(--mu)">('+Math.round(d.pctMeta)+'%)</span></div><div style="font-size:11px;color:var(--mu)">meta: maior de 10k/média 3m</div></div>'
       +'<div style="background:'+(d.acelPP>0?'#ECFDF5':'var(--bg)')+';border-radius:var(--rs);padding:10px"><div style="font-size:11px;color:var(--mu)">Acelerador</div><div style="font-size:18px;font-weight:800;color:'+(d.acelPP>0?'#059669':'var(--dark)')+'">+'+String(d.acelPP).replace('.',',')+' p.p.</div><div style="font-size:11px;color:var(--mu)">balcão '+String(0.8+d.acelPP).replace('.',',')+'% · B2B '+String(1.0+d.acelPP).replace('.',',')+'%</div></div>'
-      +'<div style="background:#EFF6FF;border-radius:var(--rs);padding:10px"><div style="font-size:11px;color:#1D4ED8;font-weight:700">PREENCHA ↓</div><div style="font-size:11px;color:var(--mu);margin-top:4px">B2B, ativações e máquinas vêm de fora do CRM</div></div>'
+      +'<div style="background:#EFF6FF;border-radius:var(--rs);padding:10px"><div style="font-size:11px;color:#1D4ED8;font-weight:700">'+((_isAdmin||_isRH)?'PREENCHA ↓':'INFORMADO PELO RH ↓')+'</div><div style="font-size:11px;color:var(--mu);margin-top:4px">B2B, ativações e máquinas vêm de fora do CRM</div></div>'
       +'</div>'
       +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">'
       +campoApur('Faturamento B2B do mês (R$)','b2b',sv.b2b,cid,(d.autoB2B>0?'auto do arquivo (VENDA_B2B) — pode ajustar':'do total de '+fmtMoney(d.fatTot)))
@@ -1258,7 +1284,7 @@ async function renderApuracao(){
 }
 function campoApur(lbl,campo,val,cid,sub){
   return '<div><div style="font-size:11px;font-weight:700;color:#1D4ED8;margin-bottom:4px">'+lbl+'</div>'
-    +'<input type="text" inputmode="decimal" id="apur-'+campo+'-'+cid+'" value="'+(val!==undefined&&val!==null?String(val).replace('.',','):'')+'" oninput="recalcApuracaoByCid(\''+cid+'\')" style="width:100%;padding:8px 10px;border:1.5px solid #93C5FD;border-radius:6px;font-size:14px;font-weight:700;background:#F0F9FF;color:#0369A1;box-sizing:border-box">'
+    +'<input type="text" inputmode="decimal" '+((_isAdmin||_isRH)?'':'disabled ')+'id="apur-'+campo+'-'+cid+'" value="'+(val!==undefined&&val!==null?String(val).replace('.',','):'')+'" oninput="recalcApuracaoByCid(\''+cid+'\')" style="width:100%;padding:8px 10px;border:1.5px solid #93C5FD;border-radius:6px;font-size:14px;font-weight:700;background:'+((_isAdmin||_isRH)?'#F0F9FF':'#F3F4F6')+';color:#0369A1;box-sizing:border-box">'
     +'<div style="font-size:10px;color:var(--mu);margin-top:3px">'+sub+'</div></div>';
 }
 function recalcApuracaoByCid(cid){
@@ -1290,6 +1316,22 @@ function recalcApuracao(coordId){
     +linha('6.5 Volume nas máquinas',fmtMoney(vol)+' × 0,02%',fmtMoney(bVol))
     +linha('TOTAL REMUNERAÇÃO VARIÁVEL','',fmtMoney(total),true)
     +'</table>';
+  // Projeção do mês corrente: vendas no ritmo atual até o fim do mês (dias carimbados pelo sistema)
+  var fp=fatorProj(ctx);
+  if(fp){
+    var dP=apurBaseProj(d,fp.f);
+    var b2bIn=gN('b2b');
+    var b2bP=(d.autoB2B>0&&Math.abs(b2bIn-d.autoB2B)<0.01)?dP.autoB2B:b2bIn*fp.f;
+    var ccP=calcComissao(dP,b2bP,ativ,maq,vol*fp.f);
+    el.innerHTML+='<div style="margin-top:10px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:var(--rs);padding:10px 14px;display:flex;flex-wrap:wrap;gap:16px;align-items:center">'
+      +'<div><div style="font-size:10px;color:#1D4ED8;font-weight:800;text-transform:uppercase">Projeção do mês <span style="font-weight:600">('+String(fp.c).replace('.',',')+' de '+String(fp.t).replace('.',',')+' dias úteis)</span></div>'
+      +'<div style="font-size:11px;color:var(--mu);margin-top:2px">mantendo o ritmo atual de vendas até o fim do mês</div></div>'
+      +'<div style="margin-left:auto;display:flex;gap:18px;flex-wrap:wrap">'
+      +'<div><div style="font-size:10px;color:#1D4ED8;font-weight:700">VENDA PROJETADA</div><div style="font-size:15px;font-weight:800;color:#1D4ED8">'+fmtMoney(dP.fatTot)+'</div></div>'
+      +'<div><div style="font-size:10px;color:#1D4ED8;font-weight:700">COMISSÕES PROJ.</div><div style="font-size:15px;font-weight:800;color:#1D4ED8">'+fmtMoney(ccP.comB+ccP.comB2)+'</div></div>'
+      +'<div><div style="font-size:10px;color:#1D4ED8;font-weight:700">TOTAL VARIÁVEL PROJETADO</div><div style="font-size:15px;font-weight:800;color:#1D4ED8">'+fmtMoney(ccP.total)+'</div></div>'
+      +'</div></div>';
+  }
 }
 function exportarDetalheApur(coordId){
   var rows=_apurRows[coordId]||[];
@@ -1342,12 +1384,11 @@ function popularMesesRelv(){
     o.textContent=MN[d.getMonth()]+'/'+d.getFullYear()+(i===0?' (parcial)':'');
     sel.appendChild(o);
   }
-  sel.selectedIndex=1;
+  sel.selectedIndex=0; // mês corrente: mostra venda atual + projetada
 }
 async function renderRelVendas(){
   var wrap=document.getElementById('relv-wrap');
   if(!wrap)return;
-  if(!_isAdmin&&!_isRH){wrap.innerHTML='<div class="empty" style="padding:24px 0"><i class="ti ti-lock"></i><p>Acesso restrito</p></div>';return;}
   popularMesesRelv();
   var sel=document.getElementById('relv-mes');
   var p=sel.value.split('_');var ano=parseInt(p[0]),mes=parseInt(p[1]);
@@ -1363,6 +1404,7 @@ async function renderRelVendas(){
   });
   if(!coords.length){wrap.innerHTML='<div class="empty" style="padding:24px 0"><i class="ti ti-users"></i><p>Nenhuma coordenadora com carteira fixa</p></div>';return;}
 
+  var fpRel=fatorProj(ctx);
   wrap.innerHTML=coords.map(function(co){
     var d=apurBase(co.id,ctx);
     _apurRows[co.id]=d.rows;
@@ -1401,6 +1443,8 @@ async function renderRelVendas(){
       +'<div class="card-body">'
       // Resumo dos prêmios/componentes
       +'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">'
+      +chip('Venda do mês (atual)',fmtMoney(d.fatTot))
+      +(fpRel?chip('Venda projetada ('+String(fpRel.c).replace('.',',')+' de '+String(fpRel.t).replace('.',',')+' d. úteis)','<span style="color:#1D4ED8">'+fmtMoney(apurBaseProj(d,fpRel.f).fatTot)+'</span>'):'')
       +chip('Comissão balcão '+String(0.8+d.acelPP).replace('.',',')+'%',fmtMoney(cc.comB))
       +chip('Comissão B2B '+String(1.0+d.acelPP).replace('.',',')+'%',fmtMoney(cc.comB2))
       +chip('Prêmio B2B ('+(Math.round(cc.part*10)/10).toLocaleString('pt-BR')+'%)',fmtMoney(cc.premio))
