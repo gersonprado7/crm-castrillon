@@ -545,7 +545,7 @@ var MES=new Date().toISOString().slice(0,7);
 var ANO=new Date().getFullYear();
 var _session=null,_isAdmin=false,_isRH=false,_permissoes=[],_userEmail=null;
 var _filtroRegiao='';
-var _coordenadores=[],_clientes=[],_visitas=[],_ativacoes=[],_acoes=[],_historico={},_historicoB2B={},_todasVisitas=[];
+var _coordenadores=[],_clientes=[],_visitas=[],_ativacoes=[],_acoes=[],_historico={},_historicoB2B={},_histC={},_histB2BC={},_todasVisitas=[];
 var secAtual='dash';
 
 // ── UTILITÁRIOS ────────────────────────────────────────────
@@ -785,13 +785,41 @@ function fatCli(c){
     // Sem código: só tem valor do mês corrente
     return _filtroMeses.indexOf(kCorrF)>=0?(c.fat||0):0;
   }
-  var h=histDe(c.codigo);
+  var h=histDeCli(c);
   var t=0;
   _filtroMeses.forEach(function(fm){t+=h[fm]||0;});
   return t;
 }
-var _histNormIdx=null;
-function histDe(codigo){
+var _histNormIdx=null,_histIdxC=null,_histB2BIdxC=null;
+function _idxBuckets(src){
+  var out={};
+  Object.keys(src||{}).forEach(function(cb){
+    out[cb]={};
+    Object.keys(src[cb]).forEach(function(cod){out[cb][normZap(cod)]=src[cb][cod];});
+  });
+  return out;
+}
+// Histórico do CLIENTE respeitando a coordenadora (chave coord+código);
+// cai no legado '_all' (linhas antigas sem coord) quando o bucket da coord não tem o código
+function histDeCli(c){
+  if(!c||!c.codigo)return {};
+  if(!_histIdxC)_histIdxC=_idxBuckets(_histC);
+  var n=normZap(c.codigo);
+  var b=_histIdxC[c.coord_id];
+  if(b&&b[n])return b[n];
+  var g=_histIdxC['_all'];
+  return (g&&g[n])||{};
+}
+function b2bDeCli(c){
+  if(!c||!c.codigo)return {};
+  if(!_histB2BIdxC)_histB2BIdxC=_idxBuckets(_histB2BC);
+  var n=normZap(c.codigo);
+  var b=_histB2BIdxC[c.coord_id];
+  if(b&&b[n])return b[n];
+  var g=_histB2BIdxC['_all'];
+  return (g&&g[n])||{};
+}
+function histDe(codigo){ // legado: visão global (soma das coordenadoras)
   if(!codigo)return {};
   var k=String(codigo).trim().toUpperCase();
   if(_historico[k])return _historico[k];
@@ -891,14 +919,25 @@ async function carregarHistorico(){
       if(data.length<pageSize)break;
       page++;
     }
-    _historico={};_historicoB2B={};_histNormIdx=null;
+    _historico={};_historicoB2B={};_histC={};_histB2BC={};_histNormIdx=null;_histIdxC=null;_histB2BIdxC=null;
     rows.forEach(function(r){
-      var k=r.codigo;
+      var k=r.codigo;var km=r.ano+'_'+r.mes;
+      // Global (soma entre coordenadoras) — usado p/ lista de meses e fallback de legado
       if(!_historico[k])_historico[k]={};
-      _historico[k][r.ano+'_'+r.mes]=r.valor||0;
+      _historico[k][km]=(_historico[k][km]||0)+(r.valor||0);
       if(r.valor_b2b){
         if(!_historicoB2B[k])_historicoB2B[k]={};
-        _historicoB2B[k][r.ano+'_'+r.mes]=r.valor_b2b;
+        _historicoB2B[k][km]=(_historicoB2B[k][km]||0)+r.valor_b2b;
+      }
+      // Por coordenadora (chave do modelo novo); legado sem coord vai p/ '_all'
+      var cb=r.coord_id||'_all';
+      if(!_histC[cb])_histC[cb]={};
+      if(!_histC[cb][k])_histC[cb][k]={};
+      _histC[cb][k][km]=(_histC[cb][k][km]||0)+(r.valor||0);
+      if(r.valor_b2b){
+        if(!_histB2BC[cb])_histB2BC[cb]={};
+        if(!_histB2BC[cb][k])_histB2BC[cb][k]={};
+        _histB2BC[cb][k][km]=(_histB2BC[cb][k][km]||0)+r.valor_b2b;
       }
     });
   }catch(e){console.warn('historico_vendas não disponível:',e.message);}
@@ -973,9 +1012,9 @@ function renderDash(){
   var histsC=[];
   (function(){var v={};C.forEach(function(c){
     if(!c.codigo)return;
-    var n=normZap(c.codigo);
+    var n=c.coord_id+'|'+normZap(c.codigo);
     if(v[n])return;v[n]=1;
-    histsC.push(histDe(c.codigo));
+    histsC.push(histDeCli(c));
   });})();
   function somaHistMes(k){
     var t=0;histsC.forEach(function(h){t+=h[k]||0;});
@@ -1133,11 +1172,8 @@ function calcComissao(d,b2bIn,ativ,maq,vol){
   return {b2b:b2b,incB2B:incB2B,incBalcao:incBalcao,rB:rB,rB2:rB2,comB:comB,comB2:comB2,part:part,premio:premio,bAtiv:bAtiv,bMaq:bMaq,bVol:bVol,total:comB+comB2+premio+bAtiv+bMaq+bVol};
 }
 function apurCtxFor(ano,mes){
-  var histIdx={},b2bIdx={};
-  Object.keys(_historico||{}).forEach(function(cod){histIdx[normZap(cod)]=_historico[cod];});
-  Object.keys(_historicoB2B||{}).forEach(function(cod){b2bIdx[normZap(cod)]=_historicoB2B[cod];});
   function kMes(a,m){while(m<1){m+=12;a--;}return a+'_'+m;}
-  return {ano:ano,mes:mes,k:ano+'_'+mes,k1:kMes(ano,mes-1),k2:kMes(ano,mes-2),k3:kMes(ano,mes-3),histIdx:histIdx,b2bIdx:b2bIdx};
+  return {ano:ano,mes:mes,k:ano+'_'+mes,k1:kMes(ano,mes-1),k2:kMes(ano,mes-2),k3:kMes(ano,mes-3)};
 }
 function apurBase(coordId,ctx){
   var ofs=(function(){var v={},out=[];_clientes.forEach(function(c){
@@ -1147,9 +1183,8 @@ function apurBase(coordId,ctx){
   });return out;})();
   var d={tot:ofs.length,fatTot:0,naMeta:0,ativas:0,baseInc:0,incB2BAuto:0,autoB2B:0,rows:[]};
   ofs.forEach(function(o){
-    var nz=normZap(o.codigo);
-    var h=ctx.histIdx[nz]||{};
-    var hb=ctx.b2bIdx[nz]||{};
+    var h=histDeCli(o);
+    var hb=b2bDeCli(o);
     var f=h[ctx.k]||0;
     var fb=Math.min(hb[ctx.k]||0,f);
     var soma5=0;APUR_BASELINE_KEYS.forEach(function(bk){soma5+=h[bk]||0;});
@@ -1720,7 +1755,7 @@ function abrirModalCliente(cliId, _visita){
     +'</div>';
 
   // Histórico de vendas
-  var hist=histDe(c.codigo);
+  var hist=histDeCli(c);
   var anos=[2025,2026];
   var temHist=Object.keys(hist).length>0;
 
@@ -1905,6 +1940,86 @@ function exportarNaoEncontrados(){
 }
 
 
+
+async function importarCarteiraComFiliais(linhas,iCoord,iCod,iNome,iFilV){
+  function normZc(s){return String(s||'').trim().toUpperCase().replace(/^0+(?=.)/,'');}
+  // Mapear nome da coordenadora na planilha → coord_id (pelo primeiro nome)
+  function coordIdDe(nomePlan){
+    var pn=String(nomePlan||'').trim().toLowerCase().split(/\s+/)[0];
+    if(!pn)return null;
+    var co=_coordenadores.find(function(c){return String(c.nome||'').trim().toLowerCase().split(/\s+/)[0]===pn;});
+    return co?co.id:null;
+  }
+  // Consolidar a planilha: (coord,codigo) → {nome, filiais}
+  var plano={},coordsDesconhecidas={},totalLinhas=0;
+  linhas.forEach(function(r){
+    var cod=String(r[iCod]||'').trim().toUpperCase();
+    if(!cod)return;
+    totalLinhas++;
+    var cid=coordIdDe(r[iCoord]);
+    if(!cid){coordsDesconhecidas[String(r[iCoord]||'').trim()]=1;return;}
+    var fil=String(r[iFilV]||'').split(',').map(function(f){return f.trim().toUpperCase();}).filter(Boolean).join(', ');
+    var nome=iNome>=0?String(r[iNome]||'').trim():'';
+    plano[cid+'|'+normZc(cod)]={cid:cid,cod:cod,nome:nome,filiais:fil};
+  });
+  var chaves=Object.keys(plano);
+  if(!chaves.length){alert('Nenhuma linha válida na planilha de carteira.');setSyncStatus('ok');return;}
+  if(Object.keys(coordsDesconhecidas).length){
+    alert('Coordenadora(s) não reconhecida(s) na planilha: '+Object.keys(coordsDesconhecidas).join(', ')+'\nEssas linhas foram IGNORADAS.');
+  }
+
+  // 1) Resetar carteira fixa
+  setSyncStatus('sync','Limpando carteira anterior...');
+  await fetch(SUPA_URL+'/rest/v1/clientes?carteira_fixa=eq.true',{method:'PATCH',headers:{...supaHeaders(),'Prefer':'return=minimal'},body:JSON.stringify({carteira_fixa:false})});
+
+  // 2) Índice dos clientes atuais por (coord, código normalizado)
+  var idxCli={};
+  _clientes.forEach(function(c){
+    if(!c.codigo||!c.coord_id)return;
+    var kk=c.coord_id+'|'+normZc(c.codigo);
+    if(!idxCli[kk])idxCli[kk]=[];
+    idxCli[kk].push(c);
+  });
+
+  // 3) Atualizar existentes / inserir faltantes
+  var patches=[],inserts=[];
+  chaves.forEach(function(kk){
+    var p=plano[kk];
+    var regs=idxCli[kk];
+    if(regs&&regs.length){
+      regs.forEach(function(c){patches.push({id:c.id,filiais:p.filiais});});
+    }else{
+      inserts.push({
+        id:'cimp_'+p.cid.replace('coord_','').slice(0,10)+'_'+p.cod.toLowerCase(),
+        coord_id:p.cid,codigo:p.cod,nome:p.nome||p.cod,status:'Ativa',meta:10000,fat:0,canal:'Balcão',
+        carteira_fixa:true,filiais_validas:p.filiais,criado_em:new Date().toISOString()
+      });
+    }
+  });
+
+  var marcados=0;
+  for(var pi=0;pi<patches.length;pi+=10){
+    var lote=patches.slice(pi,pi+10);
+    await Promise.all(lote.map(function(pt){
+      return fetch(SUPA_URL+'/rest/v1/clientes?id=eq.'+encodeURIComponent(pt.id),{method:'PATCH',headers:{...supaHeaders(),'Prefer':'return=minimal'},body:JSON.stringify({carteira_fixa:true,filiais_validas:pt.filiais,updated_at:new Date().toISOString()})}).then(function(rr){if(rr.ok)marcados++;});
+    }));
+    setSyncStatus('sync','Atualizando carteira... '+Math.round(Math.min(pi+10,patches.length)/Math.max(patches.length,1)*100)+'%');
+  }
+  var inseridos=0;
+  for(var ii=0;ii<inserts.length;ii+=50){
+    var loteI=inserts.slice(ii,ii+50);
+    var rI=await fetch(SUPA_URL+'/rest/v1/clientes',{method:'POST',headers:{...supaHeaders(),'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(loteI)});
+    if(rI.ok)inseridos+=loteI.length;
+  }
+
+  setSyncStatus('ok');
+  var bar=document.getElementById('import-bar'),res=document.getElementById('import-res');
+  bar.classList.add('on');
+  res.innerHTML='<strong>Carteira fixa (formato com filiais) atualizada:</strong> '+marcados+' clientes marcados · '+inseridos+' cadastrados agora · '+chaves.length+' na lista'
+    +'<br><span style="font-size:11px;color:var(--mu)">Filiais válidas gravadas por cliente — as próximas importações de vendas (com coluna FILIAL) alocam por coordenadora automaticamente.</span>';
+  await loadAll();
+}
+
 async function importarCarteiraFixa(input){
   var file=input.files[0];if(!file)return;
   input.value='';
@@ -1915,18 +2030,26 @@ async function importarCarteiraFixa(input){
     var wb=XLSX.read(ab,{type:'array'});
     var ws=wb.Sheets[wb.SheetNames[0]];
     var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-    // Detectar colunas: coordenador / codigo
-    var hdrIdx=-1,iCoord=-1,iCod=-1;
+    // Detectar colunas: coordenador / codigo / nome / filiais válidas
+    var hdrIdx=-1,iCoord=-1,iCod=-1,iNome=-1,iFilV=-1;
     for(var hi=0;hi<Math.min(4,rows.length);hi++){
       var rl=(rows[hi]||[]).map(function(c){return String(c||'').toLowerCase();});
-      var ic=-1,ico=-1;
+      var ic=-1,ico=-1,inm=-1,ifv=-1;
       rl.forEach(function(h,i){
         if(ico<0&&(h.indexOf('codigo')>=0||h.indexOf('código')>=0))ico=i;
         if(ic<0&&h.indexOf('coordenador')>=0)ic=i;
+        if(ifv<0&&h.indexOf('filiais')>=0)ifv=i;
+        if(inm<0&&(h.indexOf('nome')>=0||h.indexOf('cliente')>=0||h.indexOf('empresa')>=0)&&h.indexOf('codigo')<0&&h.indexOf('código')<0)inm=i;
       });
-      if(ico>=0){hdrIdx=hi;iCod=ico;iCoord=ic;break;}
+      if(ico>=0){hdrIdx=hi;iCod=ico;iCoord=ic;iNome=inm;iFilV=ifv;break;}
     }
     if(iCod<0){alert('Não encontrei a coluna de código na planilha.');setSyncStatus('ok');return;}
+
+    // ── FORMATO NOVO (com Filiais Válidas): atualiza carteira + filiais e cadastra faltantes ──
+    if(iFilV>=0&&iCoord>=0){
+      await importarCarteiraComFiliais(rows.slice(hdrIdx+1),iCoord,iCod,iNome,iFilV);
+      return;
+    }
 
     // Coletar códigos da carteira (normalizado)
     var codsCarteira=[];
@@ -1988,7 +2111,7 @@ async function importarVendas(input){
   var btn=document.getElementById('btn-importar');
   btn.disabled=true;btn.innerHTML='<i class="ti ti-loader" style="animation:pulse 1s infinite"></i> Processando...';
   try{
-    var dados={};var dadosB2B={};
+    var dados={};var dadosB2B={};var dadosC=null;var dadosB2BC=null;
     var modoHistorico=false;
     var mesNum=parseInt(MES.slice(5,7));
     var anoNum=parseInt(MES.slice(0,4));
@@ -2112,11 +2235,12 @@ async function importarVendas(input){
       for(var hl=0;hl<Math.min(4,xlsRows.length);hl++){
         var rowL=(xlsRows[hl]||[]).map(function(c){return String(c||'').toLowerCase();});
         var iCod=-1,iMes=-1,iVal=-1;
-        var candVal=[];var iB2B=-1;
+        var candVal=[];var iB2B=-1;var iFil=-1;
         rowL.forEach(function(h,i){
           if(iCod<0&&(h.indexOf('codigo')>=0||h.indexOf('código')>=0))iCod=i;
           if(iMes<0&&(h.indexOf('mês ano')>=0||h.indexOf('mes ano')>=0||h==='mês'||h==='mes'))iMes=i;
           if(iB2B<0&&h.indexOf('b2b')>=0){iB2B=i;return;}
+          if(iFil<0&&h.indexOf('filial')>=0){iFil=i;return;}
           if(h.indexOf('venda')>=0||h.indexOf('valor')>=0||h.indexOf('faturamento')>=0)candVal.push(i);
         });
         // Escolher a coluna de valor cujo conteúdo da 1ª linha de dados é NUMÉRICO
@@ -2128,13 +2252,29 @@ async function importarVendas(input){
           if(!isNaN(v))iVal=ci;
         });
         if(iVal<0&&candVal.length)iVal=candVal[candVal.length-1];
-        if(iCod>=0&&iVal>=0&&iVal!==iCod&&iVal!==iMes){hdrLong={cod:iCod,mes:iMes,val:iVal,b2b:iB2B};hdrLongIdx=hl;break;}
+        if(iCod>=0&&iVal>=0&&iVal!==iCod&&iVal!==iMes){hdrLong={cod:iCod,mes:iMes,val:iVal,b2b:iB2B,fil:iFil};hdrLongIdx=hl;break;}
       }
       var isLong=!!hdrLong;
       var isMultiCol=!isLong&&hdr.length>3;
       var _diagFmt='xlsx '+xlsRows.length+' linhas · '+(isLong?'formato long hdr L'+(hdrLongIdx+1):(isMultiCol?'multi-col hdr L'+(hdrRowIdx+1):'formato simples'))+' · '+_diagAba;
       if(isLong){
         modoHistorico=true;
+        // ── Alocação por coordenadora (chave coord+código, filtro por Filiais Válidas) ──
+        function normZi(s){return String(s||'').trim().toUpperCase().replace(/^0+(?=.)/,'');}
+        var mapaCoord={};  // coord_id → {cods:{normZ:fsetOuNull}, regiao:{filial:1}}
+        _clientes.forEach(function(c){
+          if(!c.codigo||!c.coord_id)return;
+          var m=mapaCoord[c.coord_id]||(mapaCoord[c.coord_id]={cods:{},regiao:{}});
+          var fset=null;
+          if(c.filiais_validas){
+            fset={};
+            String(c.filiais_validas).split(',').forEach(function(f){f=f.trim().toUpperCase();if(f){fset[f]=1;m.regiao[f]=1;}});
+          }
+          var nz=normZi(c.codigo);
+          if(!m.cods[nz]||fset)m.cods[nz]=fset;  // se algum registro tem filiais, prevalece
+        });
+        var temFilial=hdrLong.fil>=0;
+        if(temFilial){dadosC={};dadosB2BC={};}
         var MREGEX=/(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[\s.\/]*?(20\d\d)/i;
         var MIDX={'jan':1,'fev':2,'mar':3,'abr':4,'mai':5,'jun':6,'jul':7,'ago':8,'set':9,'out':10,'nov':11,'dez':12};
         xlsRows.slice(hdrLongIdx+1).forEach(function(r){
@@ -2148,14 +2288,40 @@ async function importarVendas(input){
           }else{ano=anoNum;mes=mesNum;}
           var val=parseFloat(String(r[hdrLong.val]||'').replace(',','.'));
           if(isNaN(val)||val===0)return;
-          if(!dados[cod])dados[cod]={};
           var k=ano+'_'+mes;
-          dados[cod][k]=(dados[cod][k]||0)+val;
-          if(hdrLong.b2b>=0&&String(r[hdrLong.b2b]||'').trim().toUpperCase()==='SIM'){
-            if(!dadosB2B[cod])dadosB2B[cod]={};
-            dadosB2B[cod][k]=(dadosB2B[cod][k]||0)+val;
+          var ehB2B=hdrLong.b2b>=0&&String(r[hdrLong.b2b]||'').trim().toUpperCase()==='SIM';
+          if(temFilial){
+            // Modelo novo: aloca à coordenadora cujo cliente tem a filial entre as válidas
+            var filial=String(r[hdrLong.fil]||'').trim().toUpperCase();
+            var nz=normZi(cod);
+            Object.keys(mapaCoord).forEach(function(cid){
+              var m=mapaCoord[cid];
+              if(!(nz in m.cods))return;
+              var fset=m.cods[nz];
+              if(!fset&&Object.keys(m.regiao).length)fset=m.regiao;  // sem filiais no cadastro → região da coord
+              if(fset&&!fset[filial])return;
+              if(!dadosC[cid])dadosC[cid]={};
+              if(!dadosC[cid][nz])dadosC[cid][nz]={};
+              dadosC[cid][nz][k]=(dadosC[cid][nz][k]||0)+val;
+              if(ehB2B){
+                if(!dadosB2BC[cid])dadosB2BC[cid]={};
+                if(!dadosB2BC[cid][nz])dadosB2BC[cid][nz]={};
+                dadosB2BC[cid][nz][k]=(dadosB2BC[cid][nz][k]||0)+val;
+              }
+            });
+            // Para diagnóstico de "não encontrados"
+            if(!dados[cod])dados[cod]={};
+            dados[cod][k]=(dados[cod][k]||0)+val;
+          }else{
+            if(!dados[cod])dados[cod]={};
+            dados[cod][k]=(dados[cod][k]||0)+val;
+            if(ehB2B){
+              if(!dadosB2B[cod])dadosB2B[cod]={};
+              dadosB2B[cod][k]=(dadosB2B[cod][k]||0)+val;
+            }
           }
         });
+        if(temFilial)_diagFmt+=' · filial✓';
       } else if(isMultiCol){
         // Mapear colunas para ano/mes
         var colMap=[];
@@ -2212,7 +2378,15 @@ async function importarVendas(input){
       var cod=String(c.codigo).trim().toUpperCase();
 
       if(modoHistorico){
-        var histCli=dados[cod]||dados[cod.padStart(6,'0')]||dados[String(parseInt(cod)||cod)];
+        var histCli,histCliB2B=null;
+        if(dadosC){
+          // Modelo novo: bucket da coordenadora do cliente (chave coord+código)
+          var nzS=String(cod).replace(/^0+(?=.)/,'');
+          histCli=dadosC[c.coord_id]&&dadosC[c.coord_id][nzS];
+          histCliB2B=(dadosB2BC&&dadosB2BC[c.coord_id]&&dadosB2BC[c.coord_id][nzS])||null;
+        }else{
+          histCli=dados[cod]||dados[cod.padStart(6,'0')]||dados[String(parseInt(cod)||cod)];
+        }
         if(histCli){
           atualizados++;
           var fatAtual=histCli[anoNum+'_'+mesNum]||0;
@@ -2229,7 +2403,11 @@ async function importarVendas(input){
             var val=histCli[k];
             if(val>0){
               histSalvos++;
-              var vb2b=(dadosB2B[cod]&&dadosB2B[cod][k])||0;histBulk.push({id:cod+'_'+ano+'_'+mes,codigo:cod,ano:ano,mes:mes,valor:Math.round(val*100)/100,valor_b2b:Math.round(vb2b*100)/100,atualizado_em:new Date().toISOString()});
+              var vb2b=0;
+              if(dadosC){vb2b=(histCliB2B&&histCliB2B[k])||0;}
+              else{vb2b=(dadosB2B[cod]&&dadosB2B[cod][k])||0;}
+              var idH=(dadosC?c.coord_id+'_':'')+cod+'_'+ano+'_'+mes;
+              histBulk.push({id:idH,coord_id:c.coord_id||null,codigo:cod,ano:ano,mes:mes,valor:Math.round(val*100)/100,valor_b2b:Math.round(vb2b*100)/100,atualizado_em:new Date().toISOString()});
             }
           });
         }else{naoEncontrados++;_naoEncontradosLista.push({nome:c.nome,codigo:c.codigo});}
@@ -2240,7 +2418,7 @@ async function importarVendas(input){
         if(val!==undefined){
           atualizados++;
           fatBulk.push({id:c.id,fat:Math.round(val*100)/100});
-          histBulk.push({id:cod+'_'+anoNum+'_'+mesNum,codigo:cod,ano:anoNum,mes:mesNum,valor:Math.round(val*100)/100,valor_b2b:0,atualizado_em:new Date().toISOString()});
+          histBulk.push({id:cod+'_'+anoNum+'_'+mesNum,coord_id:null,codigo:cod,ano:anoNum,mes:mesNum,valor:Math.round(val*100)/100,valor_b2b:0,atualizado_em:new Date().toISOString()});
         }else{naoEncontrados++;_naoEncontradosLista.push({nome:c.nome,codigo:c.codigo});}
       }
     });
@@ -2348,9 +2526,11 @@ async function exportarRelatorioVendas(filtroCoord){
     // Montar mapa histórico: {codigo: {mes: valor}}
     var histMap={};
     histRows.forEach(function(r){
-      if(!histMap[r.codigo])histMap[r.codigo]={};
-      histMap[r.codigo][r.mes]=r.valor||0;
+      var kk=(r.coord_id||'')+'|'+normZap(r.codigo);
+      if(!histMap[kk])histMap[kk]={};
+      histMap[kk][r.mes]=(histMap[kk][r.mes]||0)+(r.valor||0);
     });
+    function histDeExp(c){return histMap[c.coord_id+'|'+normZap(c.codigo)]||histMap['|'+normZap(c.codigo)]||null;}
 
     // Carregar visitas Jan-Jul/2026
     var ultimoDiaRel=new Date(ANO,mesAtualRel,0).getDate();
@@ -2436,7 +2616,7 @@ async function exportarRelatorioVendas(filtroCoord){
         cols.push('<Cell><Data ss:Type="String">'+esc4(c.nome||'')+'</Data></Cell>');
         var totalVenda=0,totalVis=0;
         mesesNum.forEach(function(m,mi){
-          var venda=c.codigo&&histMap[c.codigo]?histMap[c.codigo][m]||0:0;
+          var hExp=c.codigo?histDeExp(c):null;var venda=hExp?hExp[m]||0:0;
           var vis=visMap[c.id]?visMap[c.id][m]||0:0;
           cols.push('<Cell ss:StyleID="'+(venda>0?'numB':'num0')+'"><Data ss:Type="Number">'+venda+'</Data></Cell>');
           cols.push('<Cell ss:StyleID="'+(vis>0?'vis':'vis0')+'"><Data ss:Type="Number">'+vis+'</Data></Cell>');
@@ -2518,13 +2698,15 @@ async function exportarTudo(){
     anos.forEach(function(a){for(var m=1;m<=12;m++)mesesCab.push(MESES_NM[m-1]+'/'+a);});
     var histMap={};
     histRows.forEach(function(r){
-      if(!histMap[r.codigo])histMap[r.codigo]={};
-      histMap[r.codigo][r.ano+'_'+r.mes]=r.valor||0;
+      var kk=(r.coord_id||'')+'|'+normZap(r.codigo);
+      if(!histMap[kk])histMap[kk]={};
+      histMap[kk][r.ano+'_'+r.mes]=(histMap[kk][r.ano+'_'+r.mes]||0)+(r.valor||0);
     });
+    function histDeExp2(c){return histMap[c.coord_id+'|'+normZap(c.codigo)]||histMap['|'+normZap(c.codigo)]||null;}
     var abaHist=planilha2('Histórico de Vendas',
       ['Código','Nome cliente'].concat(mesesCab),
-      _clientes.filter(function(c){return c.codigo&&histMap[c.codigo];}).map(function(c){
-        var h=histMap[c.codigo]||{};
+      _clientes.filter(function(c){return c.codigo&&histDeExp2(c);}).map(function(c){
+        var h=histDeExp2(c)||{};
         var vals=[c.codigo,c.nome];
         anos.forEach(function(a){for(var m=1;m<=12;m++)vals.push(h[a+'_'+m]||0);});
         return vals;
@@ -2610,8 +2792,7 @@ function exportarExcel(){
         .sort(function(a,b){return a.ano-b.ano||a.mes-b.mes;});
       var cabV=['Código','Cliente','Coordenador'].concat(mesesOrd.map(function(m){return MN3[m.mes-1]+'/'+String(m.ano).slice(2);})).concat(['TOTAL']);
       var linhasV=_clientes.filter(function(c){return c.codigo;}).map(function(c){
-        var codN=String(c.codigo).trim().toUpperCase();
-        var h=histDe(c.codigo);
+        var h=histDeCli(c);
         var tot=0;
         var vals=mesesOrd.map(function(m){var v=h[m.k]||0;tot+=v;return v?Math.round(v*100)/100:'';});
         return [c.codigo,c.nome,coordMap[c.coord_id]||''].concat(vals).concat([Math.round(tot*100)/100]);
