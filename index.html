@@ -600,6 +600,48 @@ async function uploadFoto(cliId){
 function supaHeaders(){return{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'return=minimal'};}
 async function supaGet(table,filter){var r=await fetch(SUPA_URL+'/rest/v1/'+table+'?'+filter,{headers:supaHeaders()});if(!r.ok)throw new Error(await r.text());return r.json();}
 async function supaGetAll(table,filter){var rows=[],pg=0,ps=1000;while(true){var chunk=await supaGet(table,filter+'&limit='+ps+'&offset='+(pg*ps));rows=rows.concat(chunk);if(chunk.length<ps)break;pg++;}return rows;}
+// ── REMUNERAÇÃO v3: comissão sobre o INCREMENTO (média Jan–Mai/26) ──
+var _histCoord=null;
+async function carregarHistCoord(){
+  if(_histCoord)return _histCoord;
+  function nzH(s){return String(s||'').trim().toUpperCase().replace(/^0+(?=.)/,'');}
+  try{
+    var rows=await supaGetAll('historico_vendas','coord_id=eq.'+COORD.id+'&ano=gte.2025');
+    var H={};
+    rows.forEach(function(r){var n=nzH(r.codigo);if(!H[n])H[n]={};H[n][r.ano+'_'+r.mes]={v:r.valor||0,b:r.valor_b2b||0};});
+    _histCoord=H;lsSet('H_'+COORD.id,H);return H;
+  }catch(e){_histCoord=lsGet('H_'+COORD.id)||{};return _histCoord;}
+}
+function calcRemV3(C,A,H){
+  function nzH(s){return String(s||'').trim().toUpperCase().replace(/^0+(?=.)/,'');}
+  var ag=new Date();var kC=ag.getFullYear()+'_'+(ag.getMonth()+1);
+  function kM(a,m){while(m<1){m+=12;a--;}return a+'_'+m;}
+  var k1=kM(ag.getFullYear(),ag.getMonth()),k2=kM(ag.getFullYear(),ag.getMonth()-1),k3=kM(ag.getFullYear(),ag.getMonth()-2);
+  var B5=['2026_1','2026_2','2026_3','2026_4','2026_5'];
+  var fatT=0,fatB=0,baseInc=0,incB2B=0,naMeta=0,totCli=0,vz={};
+  (C||[]).forEach(function(c){
+    if(!c.codigo)return;
+    var n=nzH(c.codigo);if(vz[n])return;vz[n]=1;totCli++;
+    var h=(H||{})[n]||{};
+    var f=(h[kC]||{}).v||0,fb=Math.min((h[kC]||{}).b||0,f);
+    fatT+=f;fatB+=fb;
+    var s5=0;B5.forEach(function(bk){s5+=(h[bk]||{}).v||0;});
+    var inc=Math.max(0,f-s5/5);baseInc+=inc;
+    if(f>0)incB2B+=inc*(fb/f);
+    var m3=(((h[k1]||{}).v||0)+((h[k2]||{}).v||0)+((h[k3]||{}).v||0))/3;
+    if(f>=Math.max(10000,m3))naMeta++;
+  });
+  var pMeta=totCli?naMeta/totCli*100:0;
+  var acc=pMeta>70?0.2:(pMeta>=50?0.1:0);
+  var incBal=Math.max(0,baseInc-incB2B);
+  var cBal=incBal*((0.8+acc)/100),cB2b=incB2B*((1.0+acc)/100);
+  var pB=fatT?fatB/fatT*100:0,prm=0;
+  if(pB>=100)prm=3000;else if(pB>=10)prm=Math.floor(pB/10)*300;
+  var aOk=(A||[]).filter(function(a){return a.etapa==='Ativado';});
+  var bon=aOk.length*200;
+  return {fatT:fatT,fatB:fatB,baseInc:baseInc,acc:acc,cBal:cBal,cB2b:cB2b,pB:pB,prm:prm,bon:bon,aOk:aOk.length,tot:cBal+cB2b+prm+bon,naMeta:naMeta,totCli:totCli};
+}
+
 async function supaUpsert(table,obj){var r=await fetch(SUPA_URL+'/rest/v1/'+table,{method:'POST',headers:{...supaHeaders(),'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(obj)});if(!r.ok)throw new Error(await r.text());return true;}
 async function supaPatch(table,filter,obj){
   var r=await fetch(SUPA_URL+'/rest/v1/'+table+'?'+filter,{
@@ -813,11 +855,9 @@ async function renderDash(){
   var nMeta=C.filter(function(c){return c.fat>=c.meta;});
   var pM=C.length?Math.round(nMeta.length/C.length*100):0;
   var pB=fatT?Math.round(fatB/fatT*100):0;
-  var acc=pM>70?.2:pM>=50?.1:0;
-  var cBal=(fatT-fatB)*(.008+acc/100),cB2b=fatB*(.010+acc/100);
-  var prm=0;B2B.forEach(function(r){if(pB>=r[0])prm=r[1];});
-  var aOk=A.filter(function(a){return a.etapa==='Ativado';});
-  var comT=cBal+cB2b+prm+aOk.length*200;
+  var _Hd=await carregarHistCoord();
+  var _rv=calcRemV3(C,A,_Hd);
+  var acc=_rv.acc,prm=_rv.prm,comT=_rv.tot;
   var vHj=V.filter(function(v){return v.data===hoje();});
   var metaVis=parseInt(lsGet('meta_vis'))||120;
   var pVis=Math.min(100,Math.round(V.length/metaVis*100));
@@ -1056,21 +1096,15 @@ async function renderMetas(){
   document.getElementById('mp-vis-l').textContent=pVis+'%';document.getElementById('mp-vis-b').style.width=pVis+'%';
   document.getElementById('mp-cob-l').textContent=pCob+'%';document.getElementById('mp-cob-b').style.width=pCob+'%';
   document.getElementById('mp-met-l').textContent=pMet+'%';document.getElementById('mp-met-b').style.width=pMet+'%';
-  // Remuneração
-  var fatT=C.reduce(function(a,c){return a+c.fat;},0);
-  var fatB=C.filter(function(c){return c.canal==='B2B';}).reduce(function(a,c){return a+c.fat;},0);
-  var pB=fatT?Math.round(fatB/fatT*100):0;
-  var acc=pMet>70?.2:pMet>=50?.1:0;
-  var cBal=(fatT-fatB)*(.008+acc/100),cB2b=fatB*(.010+acc/100),prm=0;
-  B2B.forEach(function(r){if(pB>=r[0])prm=r[1];});
-  var aOk=A.filter(function(a){return a.etapa==='Ativado';});
-  var tot=cBal+cB2b+prm+aOk.length*200;
-  document.getElementById('r-bal').textContent=R(cBal);
-  document.getElementById('r-b2b').textContent=R(cB2b);
-  document.getElementById('r-prm').textContent=R(prm);
-  document.getElementById('r-bon').textContent=R(aOk.length*200);
-  document.getElementById('r-tot').textContent=R(tot);
-  document.getElementById('r-det').textContent='Aceler. +'+acc.toFixed(1)+' p.p. · Prêmio B2B '+R(prm)+' · Ativ. '+R(aOk.length*200);
+  // Remuneração — regra v3: comissão sobre o INCREMENTO (acima da média Jan–Mai/26)
+  var Hrv=await carregarHistCoord();
+  var rv=calcRemV3(C,A,Hrv);
+  document.getElementById('r-bal').textContent=R(rv.cBal);
+  document.getElementById('r-b2b').textContent=R(rv.cB2b);
+  document.getElementById('r-prm').textContent=R(rv.prm);
+  document.getElementById('r-bon').textContent=R(rv.bon);
+  document.getElementById('r-tot').textContent=R(rv.tot);
+  document.getElementById('r-det').textContent='Base (incremento): '+R(rv.baseInc)+' · Aceler. +'+rv.acc.toFixed(1)+' p.p. ('+rv.naMeta+'/'+rv.totCli+' na meta) · B2B '+Math.round(rv.pB)+'%';
 }
 
 // ── ARGUMENTÁRIO
