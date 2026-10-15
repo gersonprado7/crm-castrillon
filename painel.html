@@ -970,19 +970,35 @@ function renderSec(id){
 
 // ── DASHBOARD ──────────────────────────────────────────────
 
+function feriadosNacionais(ano){
+  // Fixos + móveis (Carnaval seg/ter, Sexta Santa, Corpus Christi via Páscoa)
+  var f=[[1,1],[4,21],[5,1],[9,7],[10,12],[11,2],[11,15],[11,20],[12,25]];
+  var a=ano%19,b=Math.floor(ano/100),c=ano%100,d=Math.floor(b/4),e=b%4,g=Math.floor((8*b+13)/25),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451);
+  var pmes=Math.floor((h+l-7*m+114)/31),pdia=((h+l-7*m+114)%31)+1;
+  var pascoa=new Date(ano,pmes-1,pdia);
+  [-48,-47,-2,60].forEach(function(off){var dt=new Date(pascoa);dt.setDate(dt.getDate()+off);f.push([dt.getMonth()+1,dt.getDate()]);});
+  var s={};f.forEach(function(p){s[p[0]+'_'+p[1]]=1;});return s;
+}
 function diasUteisMes(ano,mes,ateDia){
-  // Conta seg-sex de 1 até ateDia (ou o mês todo)
+  // SEM ateDia: total do mês = seg-sex (menos feriados nacionais) + sábados valendo 0,5
+  // COM ateDia: dias corridos = seg-sex completos de 1 até ateDia (menos feriados, sem sábados)
+  var fer=feriadosNacionais(ano);
   var ultimo=new Date(ano,mes,0).getDate();
-  var fim=ateDia?Math.min(ateDia,ultimo):ultimo;
+  var fim=(ateDia!==undefined&&ateDia!==null)?Math.max(0,Math.min(ateDia,ultimo)):ultimo;
   var n=0;
-  for(var d=1;d<=fim;d++){var dw=new Date(ano,mes-1,d).getDay();if(dw>=1&&dw<=5)n++;}
+  for(var d=1;d<=fim;d++){
+    if(fer[mes+'_'+d])continue;
+    var dw=new Date(ano,mes-1,d).getDay();
+    if(dw>=1&&dw<=5)n++;
+    else if(dw===6&&(ateDia===undefined||ateDia===null))n+=0.5;
+  }
   return n;
 }
 function chaveProj(){var d=new Date();return 'projDias_'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 function carregarDiasProj(){
   var d=new Date();
   var hojeK=d.toISOString().slice(0,10);
-  var auto={t:diasUteisMes(d.getFullYear(),d.getMonth()+1),c:diasUteisMes(d.getFullYear(),d.getMonth()+1,d.getDate())};
+  var auto={t:diasUteisMes(d.getFullYear(),d.getMonth()+1),c:diasUteisMes(d.getFullYear(),d.getMonth()+1,d.getDate()-1)}; // sempre D-1
   var salvo=null;
   try{salvo=JSON.parse(localStorage.getItem(chaveProj())||'null');}catch(e){}
   // Carimbo automático pelo dia em uso: ajuste manual vale só no próprio dia
@@ -1323,13 +1339,19 @@ function recalcApuracao(coordId){
     var b2bIn=gN('b2b');
     var b2bP=(d.autoB2B>0&&Math.abs(b2bIn-d.autoB2B)<0.01)?dP.autoB2B:b2bIn*fp.f;
     var ccP=calcComissao(dP,b2bP,ativ,maq,vol*fp.f);
-    el.innerHTML+='<div style="margin-top:10px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:var(--rs);padding:10px 14px;display:flex;flex-wrap:wrap;gap:16px;align-items:center">'
-      +'<div><div style="font-size:10px;color:#1D4ED8;font-weight:800;text-transform:uppercase">Projeção do mês <span style="font-weight:600">('+String(fp.c).replace('.',',')+' de '+String(fp.t).replace('.',',')+' dias úteis)</span></div>'
-      +'<div style="font-size:11px;color:var(--mu);margin-top:2px">mantendo o ritmo atual de vendas até o fim do mês</div></div>'
-      +'<div style="margin-left:auto;display:flex;gap:18px;flex-wrap:wrap">'
-      +'<div><div style="font-size:10px;color:#1D4ED8;font-weight:700">VENDA PROJETADA</div><div style="font-size:15px;font-weight:800;color:#1D4ED8">'+fmtMoney(dP.fatTot)+'</div></div>'
-      +'<div><div style="font-size:10px;color:#1D4ED8;font-weight:700">COMISSÕES PROJ.</div><div style="font-size:15px;font-weight:800;color:#1D4ED8">'+fmtMoney(ccP.comB+ccP.comB2)+'</div></div>'
-      +'<div><div style="font-size:10px;color:#1D4ED8;font-weight:700">TOTAL VARIÁVEL PROJETADO</div><div style="font-size:15px;font-weight:800;color:#1D4ED8">'+fmtMoney(ccP.total)+'</div></div>'
+    function tileP(lbl,val,destaque){
+      return '<div style="background:'+(destaque?'#1D4ED8':'#fff')+';border:1px solid #BFDBFE;border-radius:var(--rs);padding:8px 12px">'
+        +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:'+(destaque?'#BFDBFE':'#1D4ED8')+'">'+lbl+'</div>'
+        +'<div style="font-size:16px;font-weight:800;color:'+(destaque?'#fff':'#1D4ED8')+'">'+val+'</div></div>';
+    }
+    el.innerHTML+='<div style="margin-top:10px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:var(--rs);padding:12px 14px">'
+      +'<div style="font-size:11px;color:#1D4ED8;font-weight:800;text-transform:uppercase;margin-bottom:8px"><i class="ti ti-trending-up"></i> Projeção do mês <span style="font-weight:600">('+fmtBR(fp.c)+' de '+fmtBR(fp.t)+' dias úteis)</span> <span style="font-weight:400;color:var(--mu);text-transform:none">— mantendo o ritmo atual até o fim do mês</span></div>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">'
+      +tileP('Venda projetada',fmtMoney(dP.fatTot))
+      +tileP('Base comissionável proj.',fmtMoney(dP.baseInc))
+      +tileP('Comissões proj. (balcão+B2B)',fmtMoney(ccP.comB+ccP.comB2))
+      +tileP('Prêmio B2B proj.',fmtMoney(ccP.premio))
+      +tileP('TOTAL VARIÁVEL PROJETADO',fmtMoney(ccP.total),true)
       +'</div></div>';
   }
 }
@@ -1411,6 +1433,13 @@ async function renderRelVendas(){
     var sv=salvas[co.id]||{};
     var b2bUsado=(sv.b2b!==undefined&&sv.b2b!==null)?sv.b2b:d.autoB2B;
     var cc=calcComissao(d,b2bUsado,sv.ativ||0,sv.maq||0,sv.vol||0);
+    // Projeção do mês corrente: venda e variável no ritmo atual
+    var dProjRel=null,ccProjRel=null;
+    if(fpRel){
+      dProjRel=apurBaseProj(d,fpRel.f);
+      var b2bProjRel=(d.autoB2B>0&&Math.abs(b2bUsado-d.autoB2B)<0.01)?dProjRel.autoB2B:b2bUsado*fpRel.f;
+      ccProjRel=calcComissao(dProjRel,b2bProjRel,sv.ativ||0,sv.maq||0,(sv.vol||0)*fpRel.f);
+    }
 
     // Linhas por cliente (ordenadas por base de comissão desc, depois venda)
     var linhas=d.rows.slice().sort(function(a,b){return (b.incr-a.incr)||(b.f-a.f);});
@@ -1444,13 +1473,14 @@ async function renderRelVendas(){
       // Resumo dos prêmios/componentes
       +'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">'
       +chip('Venda do mês (atual)',fmtMoney(d.fatTot))
-      +(fpRel?chip('Venda projetada ('+String(fpRel.c).replace('.',',')+' de '+String(fpRel.t).replace('.',',')+' d. úteis)','<span style="color:#1D4ED8">'+fmtMoney(apurBaseProj(d,fpRel.f).fatTot)+'</span>'):'')
+      +(fpRel?chip('Venda projetada ('+fmtBR(fpRel.c)+' de '+fmtBR(fpRel.t)+' d. úteis)','<span style="color:#1D4ED8">'+fmtMoney(dProjRel.fatTot)+'</span>'):'')
       +chip('Comissão balcão '+String(0.8+d.acelPP).replace('.',',')+'%',fmtMoney(cc.comB))
       +chip('Comissão B2B '+String(1.0+d.acelPP).replace('.',',')+'%',fmtMoney(cc.comB2))
       +chip('Prêmio B2B ('+(Math.round(cc.part*10)/10).toLocaleString('pt-BR')+'%)',fmtMoney(cc.premio))
       +chip('Ativações ('+(sv.ativ||0)+')',fmtMoney(cc.bAtiv))
       +chip('Máquinas ('+(sv.maq||0)+')',fmtMoney(cc.bMaq+cc.bVol))
       +chip('TOTAL VARIÁVEL',fmtMoney(cc.total),true)
+      +(ccProjRel?'<div style="background:#1D4ED8;border:1px solid #1D4ED8;border-radius:var(--rs);padding:8px 12px;min-width:120px"><div style="font-size:10px;color:#BFDBFE;font-weight:700;text-transform:uppercase">Total variável projetado</div><div style="font-size:14px;font-weight:800;color:#fff">'+fmtMoney(ccProjRel.total)+'</div></div>':'')
       +'</div>'
       // Tabela por cliente
       +'<div style="max-height:430px;overflow:auto;border:1px solid var(--bd);border-radius:var(--rs)">'
