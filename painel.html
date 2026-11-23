@@ -2347,6 +2347,25 @@ async function importarVendas(input){
           var nz=normZi(c.codigo);
           if(!m.cods[nz]||fset)m.cods[nz]=fset;  // se algum registro tem filiais, prevalece
         });
+        // Sem "filiais válidas" cadastradas → usa as lojas da região da coordenadora
+        // (cliente com lojas em MT e GO: cada coordenadora recebe só o que foi comprado nas lojas da sua região)
+        var FILIAIS_REGIAO={
+          MT:['VARZEA GRANDE','DISTRITO (CBA)','CARMINDO (CBA)','COXIPO (CBA)','MIGUEL SUTIL','CPA (CBA)'],
+          GO:['GOIANIA','GOIANIA PIO XII','GOIANIA 3','APARECIDA DE GOIANIA']
+        };
+        function ufDaRegiao(txt){
+          var t=String(txt||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+          if(/goian|aparecida|\bgo\b/.test(t))return 'GO';
+          if(/cuiab|varzea|\bmt\b|mato grosso/.test(t))return 'MT';
+          return null;
+        }
+        Object.keys(mapaCoord).forEach(function(cid){
+          var m=mapaCoord[cid];
+          if(Object.keys(m.regiao).length)return;
+          var co=_coordenadores.find(function(c){return c.id===cid;});
+          var uf=co?(ufDaRegiao(co.regiao)||ufDaRegiao(co.filial)||ufDaRegiao(co.nome)):null;
+          if(uf)FILIAIS_REGIAO[uf].forEach(function(f){m.regiao[f]=1;});
+        });
         var temFilial=hdrLong.fil>=0;
         if(temFilial){dadosC={};dadosB2BC={};}
         var MREGEX=/(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[\s.\/]*?(20\d\d)/i;
