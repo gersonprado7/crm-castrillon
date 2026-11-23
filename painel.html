@@ -604,8 +604,9 @@ async function fazerLogin(){
     var d=await r.json();
     if(!r.ok)throw new Error(d.error_description||d.msg||'Usuário ou senha incorretos.');
     _session=d;localStorage.setItem('supa_session',JSON.stringify(d));
-    document.getElementById('login-wrap').classList.remove('on');
-    aposLogin();
+    // Recarrega a página: evita herdar filtros/telas do usuário anterior (ex.: coordenadora → admin)
+    location.reload();
+    return;
   }catch(e){errEl.textContent=e.message;errEl.classList.add('on');}
   finally{btn.disabled=false;btn.innerHTML='<i class="ti ti-login"></i> Entrar';}
 }
