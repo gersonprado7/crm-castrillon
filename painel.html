@@ -2181,6 +2181,25 @@ async function importarCarteiraFixa(input){
   }
 }
 
+// ── Importação direta do Qlik (sem planilha baixada) ──
+// A aba do Qlik Cloud lê os dados pela Engine API e envia aqui via postMessage:
+// {tipo:'qlik-vendas', nome:'DD_AAAA_MM_Clientes.xlsx', rows:[[UF,FILIAL,CODIGO,NOME,'Nov 2026',valor],...]}
+window._qlikRes=null;
+window.addEventListener('message',async function(ev){
+  if(ev.origin!=='https://castrillon.br.qlikcloud.com'||!ev.data||ev.data.tipo!=='qlik-vendas')return;
+  if(!_isAdmin){window._qlikRes='erro: só admin pode importar';return;}
+  try{
+    if(typeof XLSX==='undefined'){await new Promise(function(res,rej){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';s.onload=res;s.onerror=rej;document.head.appendChild(s);});}
+    var aoa=[['ESTADO DA VENDA','FILIAL DA VENDA','CODIGO_CLIENTE','NOME_CLIENTE','Mês ano','Venda líquida']].concat(ev.data.rows||[]);
+    var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),'Dados');
+    var file=new File([XLSX.write(wb,{type:'array',bookType:'xlsx'})],String(ev.data.nome||'qlik.xlsx'),{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    window._qlikRes='recebido '+(ev.data.rows||[]).length;
+    await importarVendas({files:[file],value:''});
+    window._qlikRes+=' · importado';
+    if(ev.source)ev.source.postMessage({tipo:'qlik-vendas-ok',res:window._qlikRes},ev.origin);
+  }catch(e){window._qlikRes='erro '+e.message;}
+});
+
 async function importarVendas(input){
   var file=input.files[0];if(!file)return;input.value='';
   var btn=document.getElementById('btn-importar');
